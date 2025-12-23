@@ -1,0 +1,16 @@
+{
+    "meta": {
+        "name": "📝 Generate Commit Message",
+        "description": "Generates a professional Git commit message from staged changes.",
+        "version": "1.0.0"
+    },
+    "execution": {
+        "source": "staged",
+        "output_mode": "auto",
+        "max_tokens": 4000
+    },
+    "prompts": {
+        "system": "You are a Senior Software Engineer and Code Reviewer. You specialize in writing semantic, professional Git commit messages that explain the 'why' and 'what' of changes. Use the imperative mood.",
+        "user": "Analyze the following git diff and generate a semantic commit message.\n\nOutput format:\n1. A concise summary paragraph.\n2. The commit message inside a code block.\n\nDIFF CONTENT:\n{DIFF_CONTENT}"
+    }
+}
