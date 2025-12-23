@@ -4,16 +4,26 @@ import logging
 import os
 import questionary
 from datetime import datetime
+from logging.handlers import RotatingFileHandler
 
 # --- Configuration & Logging ---
+# BEST PRACTICE: Rotate logs to prevent huge files, and force UTF-8 for git diffs
+log_handler = RotatingFileHandler(
+    "git_extraction.log", 
+    maxBytes=5*1024*1024,  # 5 MB
+    backupCount=1, 
+    encoding='utf-8'
+)
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[logging.FileHandler("git_extraction.log")]
+    handlers=[log_handler]
 )
 logger = logging.getLogger(__name__)
 
 CONFIG_FILE = "repo_config.json"
+OUTPUT_ROOT_DIR = "Extracted JSON"
 
 # --- Config Management ---
 def load_config():
@@ -44,11 +54,8 @@ def get_diff_text(diff_index):
     diffs = []
     for diff_item in diff_index:
         try:
-            # Get the diff text
-            # For staged changes, sometimes we need to handle new files (A) vs modified (M)
+            # Handle Rename/New/Deleted
             if diff_item.new_file:
-                # If it's a new file, the diff might be empty in some versions, 
-                # so we might want to read the blob directly, but usually diff works.
                 prefix = f"--- NEW FILE: {diff_item.b_path} ---\n"
             elif diff_item.deleted_file:
                 prefix = f"--- DELETED FILE: {diff_item.a_path} ---\n"
@@ -56,27 +63,26 @@ def get_diff_text(diff_index):
                 path = diff_item.b_path if diff_item.b_path else diff_item.a_path
                 prefix = f"--- FILE: {path} ---\n"
 
-            # Check if binary
+            # Get Diff Content
             if diff_item.diff:
                 diff_text = diff_item.diff.decode('utf-8', 'replace')
             else:
-                # Sometimes purely new files return None for diff in specific calls
                 diff_text = "(New file content)" 
 
             diffs.append(f"{prefix}{diff_text}")
             
         except Exception as e:
-            diffs.append(f"Error reading diff entry: {e}")
+            msg = f"Error reading diff entry: {e}"
+            diffs.append(msg)
+            logger.error(msg)
             
     return "\n".join(diffs) if diffs else "No changes detected."
 
 def get_commit_diff(commit):
-    """Extracts diff for an existing historical commit."""
     try:
         if not commit.parents:
             return "Initial Commit - No parent diff available."
         parent = commit.parents[0]
-        # Compare parent -> commit
         diff_index = parent.diff(commit, create_patch=True)
         return get_diff_text(diff_index)
     except Exception as e:
@@ -85,13 +91,15 @@ def get_commit_diff(commit):
 def get_staged_diff(repo):
     """Extracts diff for currently STAGED changes (Index vs HEAD)."""
     try:
-        # repo.head.commit.diff() compares HEAD against the Index (Staged)
-        # create_patch=True ensures we get the text diff
-        diff_index = repo.head.commit.diff(None, create_patch=True)
+        # STRICT COMPARISON:
+        # repo.index.diff(repo.head.commit) -> Compares Index to Head
+        # R=True -> Reverse it (Head to Index), which is 'git diff --cached'
+        # create_patch=True -> Gets the actual text diff
+        diff_index = repo.index.diff(repo.head.commit, create_patch=True, R=True)
         
-        # Note: logic is inverted slightly in wording vs history, but content is correct.
         return get_diff_text(diff_index)
     except Exception as e:
+        logger.error(f"Staged diff error: {e}", exc_info=True)
         return f"Error extracting staged diff: {str(e)}"
 
 def extract_commits_logic(repo_path, output_file, filters):
@@ -102,12 +110,12 @@ def extract_commits_logic(repo_path, output_file, filters):
         # --- MODE: STAGED CHANGES ---
         if filters.get('mode') == 'staged':
             print("\nProcessing Staged Changes (Pre-Commit)...")
-            
-            # Create a "Virtual Commit" object
             staged_diff = get_staged_diff(repo)
             
+            # Note: "No changes detected." logic depends on get_diff_text output
             if not staged_diff or staged_diff == "No changes detected.":
                 print("⚠️  No staged changes found. Did you run 'git add'?")
+                # We return 0 so user knows nothing happened, but it's not a crash error
                 return 0
 
             virtual_commit = {
@@ -192,40 +200,59 @@ def run_interactive_mode():
 
     print(f"Selected Repo: {repo_path}")
 
-    # Updated Menu Options
+    # Menu Choices
+    OPT_STAGED = "📝 Staged Changes (Pre-Commit Analysis)"
+    OPT_ALL = "📜 All History"
+    OPT_LIMIT = "🔢 Last N Commits"
+    OPT_DATE = "📅 Date Range"
+    OPT_AUTHOR = "👤 By Author"
+
     mode_selection = questionary.select(
         "What would you like to extract?",
-        choices=[
-            "📝 Staged Changes (Pre-Commit Analysis)", 
-            "📜 All History",
-            "🔢 Last N Commits",
-            "📅 Date Range",
-            "👤 By Author"
-        ]
+        choices=[OPT_STAGED, OPT_ALL, OPT_LIMIT, OPT_DATE, OPT_AUTHOR]
     ).ask()
+
+    # Map selection to a clean directory name
+    dir_mapping = {
+        OPT_STAGED: "Staged_Changes",
+        OPT_ALL: "All_History",
+        OPT_LIMIT: "Last_N_Commits",
+        OPT_DATE: "Date_Range",
+        OPT_AUTHOR: "By_Author"
+    }
+    
+    selected_sub_dir = dir_mapping.get(mode_selection, "Other")
+    
+    # Create the full output path
+    # Path: ./Extracted JSON/[Option_Name]/
+    target_dir = os.path.join(os.getcwd(), OUTPUT_ROOT_DIR, selected_sub_dir)
+    os.makedirs(target_dir, exist_ok=True) # Ensure dirs exist
 
     filters = {}
 
     # Map selection to filter logic
-    if "Staged Changes" in mode_selection:
+    if mode_selection == OPT_STAGED:
         filters['mode'] = 'staged'
-    elif "Last N Commits" in mode_selection:
+    elif mode_selection == OPT_LIMIT:
         filters['limit'] = questionary.text("How many commits?", validate=lambda t: t.isdigit()).ask()
-    elif "Date Range" in mode_selection:
+    elif mode_selection == OPT_DATE:
         filters['since'] = questionary.text("Start Date (YYYY-MM-DD):").ask()
         filters['until'] = questionary.text("End Date (YYYY-MM-DD) [Optional]:").ask()
         if filters['until'] == "": filters['until'] = None
-    elif "By Author" in mode_selection:
+    elif mode_selection == OPT_AUTHOR:
         filters['author'] = questionary.text("Author Name:").ask()
 
-    output_file = questionary.text("Output JSON filename:", default="git_extract.json").ask()
+    # Get filename from user
+    filename = questionary.text("Output JSON filename:", default="git_extract.json").ask()
+    
+    # Combine Directory + Filename
+    full_output_path = os.path.join(target_dir, filename)
 
-    if questionary.confirm(f"Ready to extract?").ask():
-        abs_output_path = os.path.abspath(output_file)
-        count = extract_commits_logic(repo_path, abs_output_path, filters)
+    if questionary.confirm(f"Ready to extract to:\n   📂 {full_output_path}").ask():
+        count = extract_commits_logic(repo_path, full_output_path, filters)
         
         if count > 0:
-            print(f"\n✅ Success! Data saved to: {abs_output_path}")
+            print(f"\n✅ Success! Data saved to: {full_output_path}")
             if filters.get('mode') == 'staged':
                 print("   (Tip: Upload this to your AI to generate a commit message!)")
         elif count == 0:
