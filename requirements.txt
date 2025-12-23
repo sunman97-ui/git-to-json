@@ -1,0 +1,11 @@
+# Core Logic
+GitPython>=3.1.0
+tiktoken>=0.7.0      # <--- New: The Tokenizer
+
+# CLI & UX
+questionary>=2.0.0
+pyperclip>=1.8.0
+
+# Development & Testing
+pytest>=7.4.0        # <--- Standard testing framework
+pytest-mock>=3.10.0  # <--- For mocking clipboard/files

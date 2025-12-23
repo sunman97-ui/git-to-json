@@ -1,103 +1,93 @@
-# Git History to JSON Extractor
+# Git-to-JSON Framework: The Adaptive Intent Engine
 
-This script extracts git commit history (or current staged changes) from a local repository and serializes it into a structured JSON file. It is designed to prepare git data for analysis or ingestion by Large Language Models (LLMs).
+> **Bridge the gap between your local git repository and Large Language Models (LLMs).**
 
-## Features
+This is not just a data extractor. It is a modular framework designed to generate context-aware prompts for AI development workflows. It features an **Adaptive Intent Engine** that intelligently decides whether to copy results to your clipboard (for quick tasks) or save them to files (for deep analysis).
 
-- **Interactive UI**: A guided command-line interface powered by `questionary`.
-- **Dual Modes**:
-    - **📜 History Mode**: Extract past commits based on depth, date, or author.
-    - **📝 Staged Mode**: Extract currently staged (pre-commit) changes. Useful for generating commit messages with AI.
-- **Automated Organization**: Outputs are automatically sorted into categorized directories (e.g., `Extracted JSON/All_History/`).
-- **Diff Extraction**: Captures the full text diff for every entry.
-- **Smart Configuration**: Remembers your recently accessed repositories.
+## 🚀 Features
 
-## How to Use
+* **🧠 Adaptive Engine**: Automatically detects payload size.
+    * *Small (< 4k tokens)*: Copies directly to your **Clipboard**. Paste straight into ChatGPT/Claude.
+    * *Large (> 4k tokens)*: Saves to a structured `PROMPT.md` file.
+* **🔌 Plugin Architecture**: Add new capabilities just by dropping a JSON file into the `templates/` folder.
+* **💾 Dual Modes**:
+    * **Workflow Mode**: Task-based generation (Commit Messages, Code Reviews, Bug Hunts).
+    * **Raw Mode**: Classic extraction of full git history to JSON datasets.
+* **🔒 Secure by Design**:
+    * Runs 100% locally.
+    * Automatically ignores output directories (`Extracted JSON/`) to prevent accidental data leaks.
+    * Does not require API keys.
 
-1. **Run the script**:
-   ```bash
-   python extract-git-interactive.py
+## 🛠️ Installation
 
-```
+1.  **Clone the repository**:
+    ```bash
+    git clone [https://github.com/sunman97-ui/git-to-json.git](https://github.com/sunman97-ui/git-to-json.git)
+    cd git-to-json
+    ```
 
-2. **Select a repository**:
-* Choose from previously saved paths.
-* Or enter a new absolute path to a local `.git` repository.
+2.  **Install dependencies**:
+    ```bash
+    pip install -r requirements.txt
+    ```
 
+## ⚡ Usage
 
-3. **Choose an Extraction Mode**:
-* **Staged Changes**: Analyzes what is currently in the Index (ready to be committed).
-* **All History**: Iterates through the entire commit tree.
-* **Last N Commits**: Limits extraction to the most recent N items.
-* **Date Range**: Filters by start (since) and end (until) dates.
-* **By Author**: Filters by specific committer name.
-
-
-4. **Name the output**:
-* Enter a filename (e.g., `feature-update.json`).
-* The script will automatically place it in: `Extracted JSON/<Category>/<filename>`.
-
-
-
-## Dependencies
-
-* `gitpython`: For interacting with the git repository.
-* `questionary`: For the interactive terminal UI.
-
-Install via pip:
-
+Run the main entry point:
 ```bash
-pip install GitPython questionary
+python main.py
 
 ```
 
-## Directory Structure
+### The Menu
 
-The script keeps your workspace clean by organizing outputs into the `Extracted JSON` folder:
+You will be greeted with an **Intent-Based Menu**:
+
+* **📝 Generate Commit Message**: Extracts staged changes, hydrates a prompt, and copies it to your clipboard.
+* **💾 Extract Raw Data**: The classic utility to dump git history (Last N commits, Date Range, etc.) into a JSON file for custom analysis.
+
+## 🧩 Extending (How to add Templates)
+
+You can create custom workflows by adding a `.json` file to the `templates/` directory.
+
+**Example: `templates/find_bugs.json**`
+
+```json
+{
+    "meta": {
+        "name": "🐛 Analyze Last Commit for Bugs",
+        "description": "Scans the most recent commit for logic errors."
+    },
+    "execution": {
+        "source": "history",
+        "limit": 1,
+        "output_mode": "auto"
+    },
+    "prompts": {
+        "system": "You are a QA Engineer.",
+        "user": "Find bugs in this code:\n\n{DIFF_CONTENT}"
+    }
+}
+
+```
+
+*The framework automatically detects this file and adds it to the CLI menu.*
+
+## 📂 Project Structure
 
 ```text
-/Extracted JSON
-    /Staged_Changes/    <-- Pre-commit analyses
-    /All_History/       <-- Full dumps
-    /Last_N_Commits/    <-- Recent snapshots
-    /Date_Range/        <-- Time-boxed extracts
-    /By_Author/         <-- User-specific audits
+├── src/                 # Core Framework Logic
+│   ├── core.py          # Git Extraction Engine
+│   ├── engine.py        # Prompt Hydration & Clipboard Logic
+│   └── cli.py           # Interactive Menu
+├── templates/           # User-defined workflows (JSON)
+├── Extracted JSON/      # Output directory (Git-ignored)
+└── main.py              # Entry point
 
 ```
 
-## Output Format
+## 📜 License
 
-The output is a JSON array.
-
-### Standard Commit
-
-```json
-[
-    {
-        "hash": "a1b2c3d4...",
-        "short_hash": "a1b2c3d",
-        "author": "Jane Doe",
-        "date": "2023-10-25T14:30:00",
-        "message": "Fix(auth): update login logic",
-        "diff": "--- FILE: auth.py ---\n- old_code()\n+ new_code()"
-    }
-]
-
-```
-
-### Staged Change (Virtual Commit)
-
-If you select "Staged Changes", the script creates a virtual commit object:
-
-```json
-[
-    {
-        "hash": "STAGED_CHANGES",
-        "short_hash": "STAGED",
-        "author": "You (Current User)",
-        "message": "PRE-COMMIT: Staged changes ready for analysis.",
-        "diff": "..."
-    }
-]
+MIT License. See `LICENSE` for details.
 
 ```
