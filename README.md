@@ -25,7 +25,13 @@ This is not just a data extractor. It is a modular framework designed to generat
     cd git-to-json
     ```
 
-2.  **Install dependencies**:
+2.  **Create a virtual environment (recommended)**:
+    ```bash
+    python -m venv venv
+    venv\Scripts\activate
+    ```
+
+3.  **Install dependencies**:
     ```bash
     pip install -r requirements.txt
     ```
