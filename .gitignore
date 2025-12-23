@@ -1,2 +1,44 @@
-# Ignore log files
+# --- Project Specific ---
+# User configuration with local paths
+repo_config.json
+
+# Runtime logs
 git_extraction.log
+
+# Output directory (Don't commit extracted data)
+Extracted JSON/
+git_extract.json
+
+# --- Python Standard ---
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environments
+venv/
+.venv/
+env/
+ENV/
+
+# --- IDE / Editor ---
+.vscode/
+.idea/
+*.swp
