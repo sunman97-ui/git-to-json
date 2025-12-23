@@ -27,8 +27,15 @@ This is not just a data extractor. It is a modular framework designed to generat
 
 2.  **Create a virtual environment (recommended)**:
     ```bash
+    # Create the environment
     python -m venv venv
+
+    # Activate the environment
+    # Windows:
     venv\Scripts\activate
+    
+    # macOS/Linux:
+    source venv/bin/activate
     ```
 
 3.  **Install dependencies**:
