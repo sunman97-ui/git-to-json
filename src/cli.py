@@ -168,7 +168,7 @@ def run_app():
 
         # --- BRANCH: EXIT ---
         if selection_name == "❌ Exit":
-            console.print("Goodbye!")
+            console.print("Goodbye!", style="bold blue") # FIXED: Bug #5 (Consistent Exit)
             break
             
         # --- BRANCH: RAW DATA ---
@@ -181,7 +181,7 @@ def run_app():
             if provider:
                 prompt = get_user_prompt()
                 if prompt:
-                    # Call engine's async runner
+                    # Call engine's async runner (Blocking call)
                     run_llm_execution(provider, prompt)
             
         # --- BRANCH: TEMPLATE WORKFLOW ---
@@ -206,20 +206,32 @@ def run_app():
                     ]
                 ).ask()
 
+                # FIXED: Bug #4 (UX - Cancel should loop back immediately)
+                if output_option == "cancel" or output_option is None:
+                    continue 
+
                 # Option A: Clipboard
                 if output_option == "clipboard":
-                    pyperclip.copy(prompt)
-                    console.print("\n✅  Success! Prompt copied to clipboard.", style="bold green")
+                    # FIXED: Bug #3 (Clipboard crash protection)
+                    try:
+                        pyperclip.copy(prompt)
+                        console.print("\n✅  Success! Prompt copied to clipboard.", style="bold green")
+                    except Exception as e:
+                        console.print(f"\n❌ Clipboard error: {e}", style="bold red")
 
                 # Option B: File
                 elif output_option == "file":
                     filename = questionary.text("Enter filename:", default="prompt.txt").ask()
                     if filename:
-                        with open(filename, "w", encoding="utf-8") as f:
-                            f.write(prompt)
-                        console.print(f"\n✅  Saved to {filename}", style="green")
+                        # FIXED: Bug #2 (File Save crash protection)
+                        try:
+                            with open(filename, "w", encoding="utf-8") as f:
+                                f.write(prompt)
+                            console.print(f"\n✅  Saved to {filename}", style="green")
+                        except Exception as e:
+                            console.print(f"\n❌ Error saving file: {e}", style="bold red")
 
-                # Option C: Execute (New Feature)
+                # Option C: Execute
                 elif output_option == "execute":
                     # We must ask for the provider now
                     provider = select_llm_provider()
@@ -229,7 +241,7 @@ def run_app():
                         run_llm_execution(provider, prompt)
 
         if not questionary.confirm("Perform another action?").ask():
-            console.print("Goodbye!", style="bold blue")
+            console.print("Goodbye!", style="bold blue") # FIXED: Bug #5 (Consistent Exit)
             break
 
 if __name__ == "__main__":
