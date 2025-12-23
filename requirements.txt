@@ -14,5 +14,5 @@ pytest-mock>=3.10.0  # <--- For mocking clipboard/files
 # LLM Integration
 pydantic-settings>=2.0  # For secure .env management
 openai>=1.0             # For OpenAI, XAI, and Ollama
-google-generativeai>=0.3 # For Gemini
+google-genai>=1.56.0       # For Gemini
 python-dotenv>=1.0      # To load the .env file

@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from typing import AsyncGenerator
 import os
 from openai import AsyncOpenAI
-import google.generativeai as genai
+from google import genai
 from src.config import LLMSettings
 
 class LLMProvider(ABC):
@@ -46,13 +46,16 @@ class XAIProvider(LLMProvider):
 
 class GeminiProvider(LLMProvider):
     def __init__(self, api_key: str):
-        genai.configure(api_key=api_key)
-        self.model = genai.GenerativeModel("gemini-2.5-pro")
+        self.client = genai.Client(api_key=api_key)
+        self.model = "gemini-2.5-pro" 
 
     async def stream_response(self, prompt: str):
-        response = await self.model.generate_content_async(prompt, stream=True)
-        async for chunk in response:
-            yield chunk.text
+        async for chunk in await self.client.aio.models.generate_content_stream(
+            model=self.model,
+            contents=prompt
+        ):
+            if chunk.text:
+                yield chunk.text
 
 class OllamaProvider(LLMProvider):
     def __init__(self, base_url: str, model: str):
