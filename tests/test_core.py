@@ -1,7 +1,7 @@
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, patch, call
 from datetime import datetime
-from src.core import fetch_repo_data
+from src.core import fetch_repo_data, get_commits_for_display
 
 # --- Mocks ---
 
@@ -91,3 +91,70 @@ def test_fetch_history_filters(mock_repo_cls, mock_repo):
     fetch_repo_data("/repo", {"mode": "history", "limit": "5", "author": "Me"})
     
     mock_repo.iter_commits.assert_called_with(max_count=5, author="Me")
+
+# New Fixtures
+@pytest.fixture
+def mock_commit_with_stats():
+    commit = MagicMock()
+    commit.hexsha = "c0ffee" * 4
+    commit.author.name = "Dev Lead"
+    commit.committed_date = 1700000000
+    commit.message = "Feat: Add new feature\n\n- Details of feature"
+    
+    # Mock commit.stats.files
+    mock_stats_files = MagicMock()
+    mock_stats_files.keys.return_value = ["src/file1.py", "src/file2.py", "docs/README.md"]
+    commit.stats.files = mock_stats_files
+    
+    return commit
+
+# New Tests
+@patch("src.core.git.Repo")
+def test_get_commits_for_display_success(mock_repo_cls, mock_repo, mock_commit_with_stats):
+    """Test get_commits_for_display returns correctly formatted data."""
+    mock_repo_cls.return_value = mock_repo
+    mock_repo.iter_commits.return_value = [mock_commit_with_stats]
+    
+    results = get_commits_for_display("/path/to/repo", limit=1)
+    
+    assert len(results) == 1
+    commit_info = results[0]
+    assert commit_info["short_hash"] == "c0ffeec"
+    assert commit_info["author"] == "Dev Lead"
+    assert "Feat: Add new feature" in commit_info["message"]
+    assert "src/file1.py" in commit_info["files"]
+    assert "src/file2.py" in commit_info["files"]
+    assert "docs/README.md" in commit_info["files"]
+
+@patch("src.core.git.Repo")
+@patch("src.core.get_commit_diff") # Mock this to avoid full diff calculation in test
+def test_fetch_history_data_by_hashes_success(mock_get_commit_diff, mock_repo_cls, mock_repo, mock_commit):
+    """Test fetching specific commits by hash."""
+    mock_repo_cls.return_value = mock_repo
+    mock_repo.commit.side_effect = [mock_commit, mock_commit] # Return same mock commit for simplicity
+    mock_get_commit_diff.return_value = "mocked diff"
+    
+    test_hashes = ["hash1", "hash2"]
+    results = fetch_repo_data("/path/to/repo", {"mode": "hashes", "hashes": test_hashes})
+    
+    assert len(results) == 2
+    mock_repo.commit.assert_has_calls([call("hash1"), call("hash2")])
+    assert results[0].diff == "mocked diff"
+    assert results[1].diff == "mocked diff"
+
+@patch("src.core._fetch_history_data_by_hashes")
+@patch("src.core._fetch_staged_data")
+@patch("src.core._fetch_history_data")
+@patch("src.core.git.Repo")
+def test_fetch_repo_data_mode_hashes(mock_repo_cls, mock_fetch_history, mock_fetch_staged, mock_fetch_by_hashes, mock_repo):
+    """Test fetch_repo_data correctly dispatches to _fetch_history_data_by_hashes."""
+    mock_repo_cls.return_value = mock_repo
+    mock_fetch_by_hashes.return_value = ["mock_commit_data"]
+    
+    test_hashes = ["hash_abc"]
+    results = fetch_repo_data("/path/to/repo", {"mode": "hashes", "hashes": test_hashes})
+    
+    mock_fetch_by_hashes.assert_called_once_with(mock_repo, test_hashes)
+    mock_fetch_staged.assert_not_called()
+    mock_fetch_history.assert_not_called()
+    assert results == ["mock_commit_data"]

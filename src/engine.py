@@ -14,13 +14,23 @@ logger = logging.getLogger(__name__)
 console = Console()
 
 def _build_prompt_from_data(template: PromptTemplate, data: List[CommitData]) -> str:
-    """Builds the final prompt string from the template and fetched data."""
+    """
+    Builds the final prompt string from the template and a list of commit data.
+    If multiple commits are provided, their diffs are concatenated.
+    """
     if not data:
         return ""
 
-    # For now, we only use the first data item (e.g., staged changes or latest commit)
-    target_data = data[0]
-    raw_diff = target_data.diff
+    # If there's only one data item, process it directly.
+    # If there are multiple, combine their diffs.
+    if len(data) == 1:
+        raw_diff = data[0].diff
+    else:
+        combined_diffs = []
+        for commit in data:
+            header = f"--- Diff for {commit.short_hash}: {commit.message.splitlines()[0]} ---\n"
+            combined_diffs.append(header + commit.diff)
+        raw_diff = "\n\n".join(combined_diffs)
 
     system_prompt = template.prompts.system or ""
     user_prompt_template = template.prompts.user

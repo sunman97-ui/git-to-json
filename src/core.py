@@ -60,6 +60,34 @@ def get_commit_diff(commit: git.Commit) -> str:
         logger.error(f"Error extracting diff for commit {commit.hexsha}: {e}", exc_info=True)
         return f"Error extracting diff: {str(e)}"
 
+def get_commits_for_display(repo_path: str, limit: int = 25) -> List[dict]:
+    """
+    Fetches a list of recent commits with minimal data for display in a TUI.
+    Includes affected file names for context.
+    """
+    try:
+        repo = git.Repo(repo_path, search_parent_directories=True)
+        commits_for_display = []
+        for commit in repo.iter_commits(max_count=limit):
+            try:
+                # Efficiently get affected file paths from commit stats
+                affected_files = list(commit.stats.files.keys())
+
+                commits_for_display.append({
+                    "hash": commit.hexsha,
+                    "short_hash": commit.hexsha[:7],
+                    "author": commit.author.name or "Unknown Author",
+                    "date": datetime.fromtimestamp(commit.committed_date).strftime('%Y-%m-%d %H:%M'),
+                    "message": commit.message.strip().split('\n')[0],
+                    "files": affected_files
+                })
+            except Exception as e:
+                logger.warning(f"Could not process commit {commit.hexsha} for display: {e}")
+        return commits_for_display
+    except Exception as e:
+        logger.error(f"Error getting commits for display from '{repo_path}': {e}", exc_info=True)
+        raise e
+
 def _fetch_staged_data(repo: git.Repo) -> List[CommitData]:
     """Fetches a virtual commit representing staged changes."""
     logger.info("Fetching Staged Changes...")
@@ -76,6 +104,25 @@ def _fetch_staged_data(repo: git.Repo) -> List[CommitData]:
         message="PRE-COMMIT: Staged changes ready for analysis.",
         diff=staged_diff
     )]
+
+def _fetch_history_data_by_hashes(repo: git.Repo, hashes: List[str]) -> List[CommitData]:
+    """Fetches full commit data for a specific list of commit hashes."""
+    commits_data = []
+    for commit_hash in hashes:
+        try:
+            commit = repo.commit(commit_hash)
+            commit_info = CommitData(
+                hash=commit.hexsha,
+                short_hash=commit.hexsha[:7],
+                author=commit.author.name or "Unknown Author",
+                date=datetime.fromtimestamp(commit.committed_date),
+                message=commit.message.strip(),
+                diff=get_commit_diff(commit)
+            )
+            commits_data.append(commit_info)
+        except Exception as e:
+            logger.error(f"Could not fetch data for commit hash {commit_hash}: {e}", exc_info=True)
+    return commits_data
 
 def _fetch_history_data(repo: git.Repo, filters: dict) -> List[CommitData]:
     """Fetches commit history based on the provided filters."""
@@ -110,9 +157,15 @@ def fetch_repo_data(repo_path: str, filters: dict) -> List[CommitData]:
     try:
         repo = git.Repo(repo_path, search_parent_directories=True)
 
-        if filters.get('mode') == 'staged':
+        mode = filters.get('mode')
+        if mode == 'staged':
             return _fetch_staged_data(repo)
-        else:
+        elif mode == 'hashes':
+            commit_hashes = filters.get('hashes', [])
+            if not commit_hashes:
+                return []
+            return _fetch_history_data_by_hashes(repo, commit_hashes)
+        else: # Default to 'history' mode
             return _fetch_history_data(repo, filters)
 
     except git.exc.InvalidGitRepositoryError:
