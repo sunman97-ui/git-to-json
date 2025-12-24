@@ -43,7 +43,7 @@ def load_config():
     if not os.path.exists(CONFIG_FILE):
         return {"saved_paths": []}
     try:
-        with open(CONFIG_FILE, 'r') as f:
+        with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
             return json.load(f)
     except Exception:
         return {"saved_paths": []}
@@ -56,7 +56,7 @@ def save_path_to_config(path):
     # Avoid duplicates
     if clean_path not in config["saved_paths"]:
         config["saved_paths"].append(clean_path)
-        with open(CONFIG_FILE, 'w') as f:
+        with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
             json.dump(config, f, indent=4)
 
 def json_serial(obj):
