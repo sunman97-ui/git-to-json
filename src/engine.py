@@ -82,7 +82,7 @@ def stream_llm_response(provider_name: str, user_prompt: str) -> str | None:
             with Live(Markdown(""), refresh_per_second=12, console=console) as live:
                 async for chunk in provider.stream_response(user_prompt):
                     full_response += chunk
-                    live.update(Markdown(full_response, "Response"))
+                    live.update(Markdown(full_response, style="blue"))
             return full_response
 
         return asyncio.run(stream_task())
