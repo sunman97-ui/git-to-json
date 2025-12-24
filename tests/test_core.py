@@ -1,6 +1,6 @@
-import pytest
 import git
 from src.core import fetch_repo_data
+
 
 def test_fetch_history_mode(temp_git_repo):
     """Test that we can extract historical commits."""

@@ -5,7 +5,14 @@ tiktoken>=0.7.0      # <--- New: The Tokenizer
 # CLI & UX
 questionary>=2.0.0
 pyperclip>=1.8.0
+rich>=13.0.0
 
 # Development & Testing
 pytest>=7.4.0        # <--- Standard testing framework
 pytest-mock>=3.10.0  # <--- For mocking clipboard/files
+
+# LLM Integration
+pydantic-settings>=2.0  # For secure .env management
+openai>=1.0             # For OpenAI, XAI, and Ollama
+google-genai>=1.56.0       # For Gemini
+python-dotenv>=1.0      # To load the .env file
