@@ -6,6 +6,7 @@ Terminal User Interface (TUI) components for user interaction.
 
 import os
 import questionary
+from src.core import get_commits_for_display
 from src.config import LLMSettings
 from src.model_config import get_model_name
 
@@ -30,6 +31,48 @@ def get_repository_path(saved_paths):
             selected_path = selected_path.strip('"\'')
             
     return selected_path
+
+def select_commits_interactively(repo_path: str) -> list[str] | None:
+    """
+    Displays an interactive checklist for the user to select commits.
+    Returns a list of selected commit hashes.
+    """
+    try:
+        commits = get_commits_for_display(repo_path, limit=50) # Fetch more commits for selection
+        if not commits:
+            print("No commits found to display.")
+            return None
+
+        # Format choices for questionary
+        choices = []
+        for commit in commits:
+            # Truncate message and file list for cleaner display
+            msg_short = (commit['message'][:60] + '..') if len(commit['message']) > 60 else commit['message']
+            files_str = ", ".join(commit['files'][:3])
+            if len(commit['files']) > 3:
+                files_str += f" (+{len(commit['files']) - 3} more)"
+            
+            display_text = (
+                f"{commit['short_hash']} | {commit['date']} | {commit['author']}: "
+                f"{msg_short} | Files: [{files_str or 'None'}]"
+            )
+            choices.append(questionary.Choice(title=display_text, value=commit['hash']))
+
+        if not choices:
+            print("No processable commits found.")
+            return None
+
+        selected_hashes = questionary.checkbox(
+            'Select commits (space to toggle, enter to confirm):',
+            choices=choices,
+            pointer='➡️'
+        ).ask()
+
+        return selected_hashes
+
+    except Exception as e:
+        print(f"\n❌ Error during interactive commit selection: {e}")
+        return None
 
 def select_llm_provider():
     """
@@ -110,6 +153,7 @@ def get_main_menu_choice(templates):
         choices.extend([t.meta.name for t in templates])
         choices.append(questionary.Separator()) 
     
+    choices.append("🤝 Interactive Commit Selection")
     choices.append("🚀 Execute AI Prompt (Direct Mode)")
     choices.append("💾 Extract Raw Data (Classic Mode)")
     choices.append("❌ Exit")
@@ -137,3 +181,15 @@ def get_prompt_filename():
 
 def confirm_another_action():
     return questionary.confirm("Perform another action?").ask()
+
+def get_interactive_output_choice():
+    """Asks user how to handle the data from interactive selection."""
+    return questionary.select(
+        "How do you want to process the selected commits?",
+        choices=[
+            questionary.Choice("🚀 Execute with AI", value="ai"),
+            questionary.Choice("💾 Save Combined JSON to File", value="extract"),
+            questionary.Separator(),
+            questionary.Choice("❌ Cancel", value="cancel")
+        ]
+    ).ask()

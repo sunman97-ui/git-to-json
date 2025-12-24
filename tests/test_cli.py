@@ -1,13 +1,20 @@
 import pytest
+import os
 from unittest.mock import MagicMock, patch, mock_open, call
+from datetime import datetime
+
 from src.cli import (
     get_repository_path,
     handle_raw_extraction,
     handle_direct_execution,
     handle_template_workflow,
+    handle_interactive_workflow,
     run_app,
-    OPT_STAGED
+    OPT_STAGED,
+    OUTPUT_ROOT_DIR
 )
+from src.schemas import CommitData, PromptTemplate
+
 
 # --- Tests for get_repository_path ---
 
@@ -170,4 +177,129 @@ def test_run_app_flow(mock_console, mock_get_repo, mock_tui, mock_load_tmpl, moc
     mock_raw.assert_called_once()
     mock_direct.assert_called_once()
     # Template workflow should not be called in this sequence
+    mock_tmpl_flow.assert_not_called()
+
+
+# --- Mock fixtures ---
+
+@pytest.fixture
+def mock_commit_data_list():
+    """Returns a list of mock CommitData objects."""
+    c1 = MagicMock(spec=CommitData)
+    c1.hash = "hash1"
+    c1.short_hash = "h1"
+    c1.author = "Author1"
+    c1.date = datetime.now()
+    c1.message = "Commit 1 message"
+    c1.diff = "diff for commit 1"
+
+    c2 = MagicMock(spec=CommitData)
+    c2.hash = "hash2"
+    c2.short_hash = "h2"
+    c2.author = "Author2"
+    c2.date = datetime.now()
+    c2.message = "Commit 2 message"
+    c2.diff = "diff for commit 2"
+    
+    return [c1, c2]
+
+# --- Tests for handle_interactive_workflow ---
+
+@patch("src.cli.stream_llm_response")
+@patch("src.cli._build_prompt_from_data")
+@patch("src.cli.tui")
+@patch("src.cli.fetch_repo_data")
+@patch("src.cli.console")
+def test_handle_interactive_workflow_ai_path(
+    mock_console, mock_fetch_repo_data, mock_tui, mock_build_prompt, mock_stream_llm,
+    mock_commit_data_list
+):
+    """Test the AI execution path of the interactive workflow."""
+    mock_tui.select_commits_interactively.return_value = ["hash1", "hash2"]
+    mock_fetch_repo_data.return_value = mock_commit_data_list
+    mock_tui.get_interactive_output_choice.return_value = "ai"
+    mock_build_prompt.return_value = "Combined AI Prompt"
+    mock_tui.select_llm_provider.return_value = "openai"
+
+    handle_interactive_workflow("/repo")
+
+    mock_tui.select_commits_interactively.assert_called_once_with("/repo")
+    mock_fetch_repo_data.assert_called_once_with("/repo", {"mode": "hashes", "hashes": ["hash1", "hash2"]})
+    mock_tui.get_interactive_output_choice.assert_called_once()
+    mock_build_prompt.assert_called_once()
+    mock_tui.select_llm_provider.assert_called_once()
+    mock_stream_llm.assert_called_once_with("openai", "Combined AI Prompt")
+    assert any("Initializing AI Execution" in str(arg) for args, _ in mock_console.print.call_args_list for arg in args)
+
+
+@patch("src.cli.save_data_to_file")
+@patch("src.cli.tui")
+@patch("src.cli.fetch_repo_data")
+@patch("src.cli.console")
+def test_handle_interactive_workflow_extract_path(
+    mock_console, mock_fetch_repo_data, mock_tui, mock_save_data,
+    mock_commit_data_list
+):
+    """Test the extract to file path of the interactive workflow."""
+    mock_tui.select_commits_interactively.return_value = ["hash1"]
+    mock_fetch_repo_data.return_value = mock_commit_data_list
+    mock_tui.get_interactive_output_choice.return_value = "extract"
+    mock_tui.get_output_filename.return_value = "output.json"
+    mock_tui.confirm_save.return_value = True
+    mock_save_data.return_value = True
+    
+    handle_interactive_workflow("/repo")
+    
+    mock_tui.select_commits_interactively.assert_called_once_with("/repo")
+    mock_fetch_repo_data.assert_called_once_with("/repo", {"mode": "hashes", "hashes": ["hash1"]})
+    mock_tui.get_interactive_output_choice.assert_called_once()
+    mock_tui.get_output_filename.assert_called_once_with(default_name="combined_commits.json")
+    
+    expected_target_dir = os.path.join(os.getcwd(), OUTPUT_ROOT_DIR, "Combined_Commits")
+    expected_full_path = os.path.join(expected_target_dir, "output.json")
+    
+    mock_tui.confirm_save.assert_called_once_with(expected_full_path, len(mock_commit_data_list))
+    mock_save_data.assert_called_once_with(mock_commit_data_list, expected_full_path)
+    assert any("Success" in str(arg) for args, _ in mock_console.print.call_args_list for arg in args)
+
+@patch("src.cli.tui")
+@patch("src.cli.fetch_repo_data")
+@patch("src.cli.console")
+def test_handle_interactive_workflow_no_selection(mock_console, mock_fetch_repo_data, mock_tui):
+    """Test handling when no commits are selected interactively."""
+    mock_tui.select_commits_interactively.return_value = []
+    
+    handle_interactive_workflow("/repo")
+    
+    mock_tui.select_commits_interactively.assert_called_once_with("/repo")
+    mock_fetch_repo_data.assert_not_called()
+    assert any("No commits selected" in str(arg) for args, _ in mock_console.print.call_args_list for arg in args)
+
+@patch("src.cli.handle_interactive_workflow")
+@patch("src.cli.handle_template_workflow")
+@patch("src.cli.handle_direct_execution")
+@patch("src.cli.handle_raw_extraction")
+@patch("src.cli.load_templates")
+@patch("src.cli.tui")
+@patch("src.cli.get_repository_path")
+@patch("src.cli.console")
+def test_run_app_interactive_route(
+    mock_console, mock_get_repo, mock_tui, mock_load_tmpl, 
+    mock_raw, mock_direct, mock_tmpl_flow, mock_interactive_flow
+):
+    """Test that the main app loop correctly routes to interactive workflow."""
+    mock_get_repo.return_value = "/repo"
+    mock_load_tmpl.return_value = ["tmpl1"]
+    
+    mock_tui.get_main_menu_choice.side_effect = [
+        "🤝 Interactive Commit Selection",
+        "❌ Exit"
+    ]
+    mock_tui.confirm_another_action.return_value = True # Not called for exit
+    
+    run_app()
+    
+    mock_interactive_flow.assert_called_once_with("/repo")
+    mock_raw.assert_not_called()
+    mock_direct.assert_not_called()
     mock_tmpl_flow.assert_not_called()

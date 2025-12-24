@@ -4,7 +4,8 @@ from rich.console import Console
 from src.utils import load_config, save_path_to_config, setup_logging, save_data_to_file
 from src.template_loader import load_templates
 from src.core import fetch_repo_data
-from src.engine import generate_prompt_from_template, stream_llm_response
+from src.engine import generate_prompt_from_template, stream_llm_response, _build_prompt_from_data
+from src.schemas import PromptTemplate, TemplateMeta, TemplateExecution, TemplatePrompts
 import src.tui as tui
 
 # Initialize Logger & Console
@@ -115,6 +116,61 @@ def handle_template_workflow(repo_path, templates, selection_name):
             console.print("\n🤖 [Agent] Initializing AI Execution...", style="bold purple")
             stream_llm_response(provider, prompt)
 
+def handle_interactive_workflow(repo_path):
+    """Manages the interactive commit selection workflow."""
+    console.print("\n[bold cyan]-- Interactive Commit Selection --[/bold cyan]")
+    selected_hashes = tui.select_commits_interactively(repo_path)
+
+    if not selected_hashes:
+        console.print("No commits selected.")
+        return
+
+    console.print(f"   ⚙️  Fetching full data for {len(selected_hashes)} selected commits...")
+    commit_data = fetch_repo_data(repo_path, {"mode": "hashes", "hashes": selected_hashes})
+
+    if not commit_data:
+        console.print("\n⚠️  Could not retrieve data for selected commits.")
+        return
+
+    output_choice = tui.get_interactive_output_choice()
+
+    if output_choice == "extract":
+        filename = tui.get_output_filename(default_name="combined_commits.json")
+        if not filename:
+            return
+
+        target_dir = os.path.join(os.getcwd(), OUTPUT_ROOT_DIR, "Combined_Commits")
+        full_output_path = os.path.join(target_dir, filename)
+
+        if tui.confirm_save(full_output_path, len(commit_data)):
+            if save_data_to_file(commit_data, full_output_path):
+                console.print(f"\n✅ Success! Saved to {full_output_path}", style="bold green")
+            else:
+                console.print("\n❌ Error saving file. Check logs.", style="bold red")
+
+    elif output_choice == "ai":
+        # Create a generic template on the fly for combined analysis
+        generic_template = PromptTemplate(
+            meta=TemplateMeta(name="Interactive Analysis", description="Analysis of interactively selected commits."),
+            execution=TemplateExecution(source="history"),
+            prompts=TemplatePrompts(
+                system="You are a senior software engineer analyzing code changes from multiple commits.",
+                user="Analyze the following combined diffs and provide a comprehensive summary of changes, potential bugs, or refactoring opportunities.\n\n{DIFF_CONTENT}"
+            )
+        )
+
+        console.print("   Building prompt from combined diffs...")
+        prompt = _build_prompt_from_data(generic_template, commit_data)
+
+        if not prompt:
+            console.print("\n⚠️  Failed to build prompt from selected commits.")
+            return
+
+        provider = tui.select_llm_provider()
+        if provider:
+            console.print("\n🤖 [Agent] Initializing AI Execution...", style="bold purple")
+            stream_llm_response(provider, prompt)
+
 def run_app():
     """Main Application Loop"""
     console.print("\n--- 🤖 Git-to-JSON Framework (v3.0) ---\n", style="bold blue")
@@ -133,6 +189,8 @@ def run_app():
 
         if selection_name == "❌ Exit":
             break
+        elif selection_name == "🤝 Interactive Commit Selection":
+            handle_interactive_workflow(repo_path)
         elif selection_name == "💾 Extract Raw Data (Classic Mode)":
             handle_raw_extraction(repo_path)
         elif selection_name == "🚀 Execute AI Prompt (Direct Mode)":
