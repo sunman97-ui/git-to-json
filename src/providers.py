@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import AsyncGenerator
 from openai import AsyncOpenAI
-from google import genai as google_genai
+import google.generativeai as google_genai
 from src.config import LLMSettings
 from src.model_config import get_model_name
 
@@ -54,6 +54,7 @@ class GeminiProvider(LLMProvider):
         self.model = model
         # Configure the client at the instance level
         google_genai.configure(api_key=self.api_key)
+
 
     async def stream_response(self, prompt: str) -> AsyncGenerator[str, None]:
         model = google_genai.GenerativeModel(self.model)

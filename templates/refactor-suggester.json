@@ -1,0 +1,14 @@
+{
+    "meta": {
+        "name": "💡 Suggest Code Refinements",
+        "description": "Analyzes staged changes for potential refactoring and quality improvements."
+    },
+    "execution": {
+        "source": "staged",
+        "output_mode": "auto"
+    },
+    "prompts": {
+        "system": "You are a Principal Software Engineer specializing in code quality and elegant design. Your task is to review code changes and provide actionable suggestions for improvement. Focus on clarity, performance, and adherence to modern best practices. Do not comment on trivial style issues like whitespace.",
+        "user": "Review the git diff below. Identify areas for refactoring or improvement. For each suggestion, provide a brief, clear explanation of the benefit and a code snippet of the proposed change.'\n\nDIFF CONTENT:\n{DIFF_CONTENT}"
+    }
+}

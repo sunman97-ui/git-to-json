@@ -42,6 +42,7 @@ def test_get_provider_gemini(mock_genai):
     assert isinstance(provider, GeminiProvider)
     mock_genai.configure.assert_called_with(api_key="gemini-test")
 
+
 @patch("src.providers.AsyncOpenAI", autospec=True)
 def test_get_provider_ollama(mock_openai):
     """Test creating Ollama provider."""
