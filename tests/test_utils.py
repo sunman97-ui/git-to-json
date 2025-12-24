@@ -1,0 +1,146 @@
+import pytest
+import json
+from datetime import datetime
+from unittest.mock import patch, mock_open, MagicMock
+from src.utils import (
+    CONFIG_FILE,
+    count_tokens, 
+    setup_logging, 
+    load_config, 
+    save_path_to_config, 
+    json_serial, 
+    save_data_to_file
+)
+
+# --- count_tokens ---
+
+@patch("src.utils.tiktoken")
+def test_count_tokens_success(mock_tiktoken):
+    """Test token counting with valid tiktoken response."""
+    mock_encoding = MagicMock()
+    mock_encoding.encode.return_value = [1, 2, 3, 4, 5]
+    mock_tiktoken.encoding_for_model.return_value = mock_encoding
+    
+    count = count_tokens("some text", model="gpt-4")
+    assert count == 5
+    mock_tiktoken.encoding_for_model.assert_called_with("gpt-4")
+
+@patch("src.utils.tiktoken")
+def test_count_tokens_fallback(mock_tiktoken):
+    """Test fallback logic when tiktoken fails."""
+    mock_tiktoken.encoding_for_model.side_effect = Exception("Model not found")
+    
+    # Fallback logic is len(text) // 4
+    text = "12345678" # length 8
+    count = count_tokens(text)
+    assert count == 2
+
+# --- setup_logging ---
+
+@patch("src.utils.RotatingFileHandler")
+@patch("src.utils.logging")
+def test_setup_logging(mock_logging, mock_handler):
+    """Test that logging is configured correctly."""
+    logger = setup_logging()
+    
+    mock_logging.basicConfig.assert_called_once()
+    mock_logging.getLogger.assert_called_with("GitToJson")
+    assert logger == mock_logging.getLogger.return_value
+
+# --- load_config ---
+
+@patch("src.utils.os.path.exists")
+@patch("builtins.open", new_callable=mock_open, read_data='{"saved_paths": ["/test/path"]}')
+def test_load_config_exists(mock_file, mock_exists):
+    """Test loading an existing config file."""
+    mock_exists.return_value = True
+    
+    config = load_config()
+    assert config == {"saved_paths": ["/test/path"]}
+    mock_file.assert_called_with(CONFIG_FILE, 'r', encoding='utf-8')
+
+@patch("src.utils.os.path.exists")
+def test_load_config_missing(mock_exists):
+    """Test loading when config file is missing."""
+    mock_exists.return_value = False
+    
+    config = load_config()
+    assert config == {"saved_paths": []}
+
+@patch("src.utils.os.path.exists")
+@patch("builtins.open", side_effect=Exception("Permission Denied"))
+def test_load_config_error(mock_file, mock_exists):
+    """Test loading when file read fails."""
+    mock_exists.return_value = True
+    
+    config = load_config()
+    assert config == {"saved_paths": []}
+
+# --- save_path_to_config ---
+
+@patch("src.utils.json.dump")
+@patch("src.utils.load_config")
+@patch("builtins.open", new_callable=mock_open)
+def test_save_path_to_config_new(mock_file, mock_load, mock_dump):
+    """Test saving a new path."""
+    mock_load.return_value = {"saved_paths": ["/old/path"]}
+    
+    save_path_to_config("/new/path")
+    
+    # Verify we opened the file for writing
+    mock_file.assert_called_with(CONFIG_FILE, 'w', encoding='utf-8')
+    
+    # Verify json.dump was called with updated list
+    args, _ = mock_dump.call_args
+    saved_data = args[0]
+    assert len(saved_data["saved_paths"]) == 2
+    assert "/old/path" in saved_data["saved_paths"]
+    # Note: We don't check for /new/path explicitly here because os.path.normpath 
+    # might alter the string depending on the OS running the test.
+
+@patch("src.utils.json.dump")
+@patch("src.utils.load_config")
+@patch("builtins.open", new_callable=mock_open)
+def test_save_path_to_config_duplicate(mock_file, mock_load, mock_dump):
+    """Test that duplicate paths are not added."""
+    # Mock normpath to ensure consistent comparison
+    with patch("src.utils.os.path.normpath", side_effect=lambda x: x):
+        mock_load.return_value = {"saved_paths": ["/existing/path"]}
+        
+        save_path_to_config("/existing/path")
+        
+        mock_file.assert_not_called()
+        mock_dump.assert_not_called()
+
+# --- json_serial ---
+
+def test_json_serial_datetime():
+    """Test serialization of datetime objects."""
+    dt = datetime(2023, 10, 25, 14, 30, 0)
+    assert json_serial(dt) == "2023-10-25T14:30:00"
+
+def test_json_serial_error():
+    """Test serialization of unsupported types."""
+    with pytest.raises(TypeError):
+        json_serial({"set", "of", "items"})
+
+# --- save_data_to_file ---
+
+@patch("src.utils.os.makedirs")
+@patch("builtins.open", new_callable=mock_open)
+def test_save_data_to_file_success(mock_file, mock_makedirs):
+    """Test successful file saving."""
+    data = [{"key": "value"}]
+    result = save_data_to_file(data, "output/data.json")
+    
+    assert result is True
+    mock_makedirs.assert_called_with("output", exist_ok=True)
+    mock_file.assert_called_with("output/data.json", 'w', encoding='utf-8')
+
+@patch("src.utils.os.makedirs")
+def test_save_data_to_file_failure(mock_makedirs):
+    """Test handling of file save errors."""
+    mock_makedirs.side_effect = Exception("Disk Error")
+    
+    result = save_data_to_file([], "output/data.json")
+    assert result is False
