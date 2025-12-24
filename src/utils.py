@@ -2,14 +2,19 @@ import json
 import os
 import logging
 from logging.handlers import RotatingFileHandler
-from datetime import datetime
+from pathlib import Path
+from typing import List
 import tiktoken
+from appdirs import AppDirs
+from pydantic import BaseModel
 
-# Constants
-CONFIG_FILE = "repo_config.json"
+# Initialize AppDirs
+dirs = AppDirs("git-to-json", "sunman97-ui")
+CONFIG_DIR = Path(dirs.user_config_dir)
+CONFIG_FILE = CONFIG_DIR / "repo_config.json"
 LOG_FILE = "git_extraction.log"
 
-def count_tokens(text, model="gpt-4"):
+def count_tokens(text: str, model: str = "gpt-4") -> int:
     """
     Returns the number of tokens in a text string using tiktoken.
     Defaults to gpt-4 encoding (cl100k_base).
@@ -18,64 +23,64 @@ def count_tokens(text, model="gpt-4"):
         encoding = tiktoken.encoding_for_model(model)
         return len(encoding.encode(text))
     except Exception as e:
-        # Fallback if model is unknown or tiktoken fails
-        logging.getLogger(__name__).warning(f"Token count failed: {e}. using char estimate.")
+        logging.getLogger(__name__).warning(f"Token count failed for model '{model}': {e}. Using character estimate.")
         return len(text) // 4  # Rough estimate
 
 def setup_logging():
     """Configures application-wide logging with rotation and UTF-8 support."""
     log_handler = RotatingFileHandler(
-        LOG_FILE, 
+        LOG_FILE,
         maxBytes=5*1024*1024,  # 5 MB
-        backupCount=1, 
+        backupCount=1,
         encoding='utf-8'
     )
-    
     logging.basicConfig(
         level=logging.INFO,
-        format='%(asctime)s - %(levelname)s - %(message)s',
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         handlers=[log_handler]
     )
     return logging.getLogger("GitToJson")
 
-def load_config():
-    """Loads the repository history configuration."""
-    if not os.path.exists(CONFIG_FILE):
+def load_config() -> dict:
+    """Loads the repository history configuration from the user's config directory."""
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    if not CONFIG_FILE.is_file():
         return {"saved_paths": []}
     try:
         with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
             return json.load(f)
-    except Exception:
+    except (json.JSONDecodeError, IOError) as e:
+        logging.getLogger(__name__).error(f"Failed to load config file: {e}", exc_info=True)
         return {"saved_paths": []}
 
-def save_path_to_config(path):
-    """Updates the repository history configuration."""
+def save_path_to_config(path: str):
+    """Updates the repository history configuration in the user's config directory."""
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     config = load_config()
     clean_path = os.path.normpath(path)
-    
-    # Avoid duplicates
-    if clean_path not in config["saved_paths"]:
-        config["saved_paths"].append(clean_path)
-        with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
-            json.dump(config, f, indent=4)
 
-def json_serial(obj):
-    """JSON serializer for objects not serializable by default json code"""
-    if isinstance(obj, datetime):
-        return obj.isoformat()
-    raise TypeError(f"Type {type(obj)} not serializable")
+    if clean_path not in config.get("saved_paths", []):
+        config.setdefault("saved_paths", []).append(clean_path)
+        try:
+            with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
+                json.dump(config, f, indent=4)
+        except IOError as e:
+            logging.getLogger(__name__).error(f"Failed to save config file: {e}", exc_info=True)
 
-def save_data_to_file(data, output_path):
+def save_data_to_file(data: List[BaseModel], output_path: str) -> bool:
     """
-    Writes the extracted data list to a JSON file.
+    Writes a list of Pydantic models to a JSON file.
     """
     try:
-        # Ensure directory exists
-        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        output_path_obj = Path(output_path)
+        output_path_obj.parent.mkdir(parents=True, exist_ok=True)
+
+        # Pydantic's dump capabilities are more robust than custom serializers.
+        json_string = json.dumps([item.model_dump(mode='json') for item in data], indent=4)
         
-        with open(output_path, 'w', encoding='utf-8') as f:
-            json.dump(data, f, default=json_serial, indent=4)
+        with open(output_path_obj, 'w', encoding='utf-8') as f:
+            f.write(json_string)
         return True
-    except Exception as e:
-        logging.getLogger(__name__).error(f"Failed to save data: {e}", exc_info=True)
+    except (TypeError, IOError) as e:
+        logging.getLogger(__name__).error(f"Failed to save data to {output_path}: {e}", exc_info=True)
         return False
