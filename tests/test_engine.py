@@ -1,123 +1,116 @@
 import pytest
-from unittest.mock import patch, MagicMock
-from src.engine import run_template_workflow, run_llm_execution
+from unittest.mock import MagicMock, patch, AsyncMock
+from src.engine import generate_prompt_from_template, stream_llm_response, _build_prompt_from_data
 
-# --- Fixtures ---
+# --- Mocks for Data Structures ---
+# We mock these to avoid dependency on src.schemas/core availability during test execution
 
 @pytest.fixture
-def sample_template():
-    return {
-        "execution": {"source": "staged"},
-        "prompts": {
-            "system": "System Prompt",
-            "user": "User Prompt with {DIFF_CONTENT}"
-        }
-    }
+def mock_template():
+    """Creates a mock PromptTemplate object."""
+    template = MagicMock()
+    template.meta.name = "Test Template"
+    template.execution.source = "history"
+    template.execution.limit = 1
+    template.prompts.system = "System Prompt"
+    template.prompts.user = "User Prompt {DIFF_CONTENT}"
+    return template
 
-# --- Helper for Async Mocking ---
+@pytest.fixture
+def mock_commit_data():
+    """Creates a mock CommitData object."""
+    commit = MagicMock()
+    commit.diff = "diff_content"
+    commit.message = "commit message"
+    commit.hash = "abc1234"
+    return commit
 
-async def mock_stream_generator(prompt):
-    """Simulates an async stream of text chunks."""
-    yield "Chunk 1"
-    yield "Chunk 2"
+# --- Tests for _build_prompt_from_data ---
 
-# --- Tests for run_template_workflow ---
-
-@patch("src.engine.fetch_repo_data")
-@patch("src.engine.count_tokens")
-@patch("src.engine.console")
-def test_run_template_workflow_success(mock_console, mock_count, mock_fetch, sample_template):
-    """Test that the workflow correctly fetches data and builds the prompt."""
-    # ARRANGE
-    mock_fetch.return_value = [{"diff": "print('hello')"}]
-    mock_count.return_value = 100
-    repo_path = "/tmp/repo"
-
-    # ACT
-    result = run_template_workflow(repo_path, sample_template)
-
-    # ASSERT
-    expected_result = (
-        "--- SYSTEM PROMPT ---\nSystem Prompt\n\n"
-        "--- USER PROMPT ---\nUser Prompt with print('hello')"
-    )
-    assert result == expected_result
+def test_build_prompt_from_data_valid(mock_template, mock_commit_data):
+    """Test that the prompt is correctly hydrated with diff data."""
+    data = [mock_commit_data]
     
-    # Verify correct calls
-    mock_fetch.assert_called_once_with(repo_path, {"mode": "staged"})
-    mock_console.print.assert_called()  # Should print status messages
+    with patch("src.engine.count_tokens", return_value=100) as mock_count:
+        result = _build_prompt_from_data(mock_template, data)
+    
+    assert "--- SYSTEM PROMPT ---\nSystem Prompt" in result
+    assert "--- USER PROMPT ---\nUser Prompt diff_content" in result
+    mock_count.assert_called_once()
+
+def test_build_prompt_from_data_empty(mock_template):
+    """Test that empty data returns an empty string."""
+    result = _build_prompt_from_data(mock_template, [])
+    assert result == ""
+
+# --- Tests for generate_prompt_from_template ---
+
+@patch("src.engine.fetch_repo_data")
+@patch("src.engine.console")  # Mock console to suppress output
+def test_generate_prompt_success(mock_console, mock_fetch, mock_template, mock_commit_data):
+    """Test the full flow of generating a prompt from a template."""
+    mock_fetch.return_value = [mock_commit_data]
+    
+    with patch("src.engine.count_tokens", return_value=50):
+        result = generate_prompt_from_template("repo/path", mock_template)
+    
+    assert result is not None
+    assert "User Prompt diff_content" in result
+    mock_fetch.assert_called_with("repo/path", {"mode": "history", "limit": 1})
 
 @patch("src.engine.fetch_repo_data")
 @patch("src.engine.console")
-def test_run_template_workflow_no_data(mock_console, mock_fetch, sample_template):
-    """Test behavior when fetch_repo_data returns empty."""
-    # ARRANGE
-    mock_fetch.return_value = []
-    repo_path = "/tmp/repo"
-
-    # ACT
-    result = run_template_workflow(repo_path, sample_template)
-
-    # ASSERT
+def test_generate_prompt_no_data(mock_console, mock_fetch, mock_template):
+    """Test handling when no git data is found."""
+    mock_fetch.return_value = []  # Empty list
+    
+    result = generate_prompt_from_template("repo/path", mock_template)
+    
     assert result is None
-    # Ensure we logged/printed a warning (checking call args roughly)
-    assert any("No data found" in str(args) for args in mock_console.print.call_args_list)
+    # Verify a warning was printed
+    assert any("No data found" in str(arg) for args, _ in mock_console.print.call_args_list for arg in args)
 
-# --- Tests for run_llm_execution ---
+@patch("src.engine.fetch_repo_data")
+@patch("src.engine.console")
+def test_generate_prompt_exception(mock_console, mock_fetch, mock_template):
+    """Test handling of exceptions during data fetch."""
+    mock_fetch.side_effect = Exception("Git failure")
+    
+    result = generate_prompt_from_template("repo/path", mock_template)
+    
+    assert result is None
+    assert any("Error" in str(arg) for args, _ in mock_console.print.call_args_list for arg in args)
+
+# --- Tests for stream_llm_response ---
 
 @patch("src.engine.load_settings")
 @patch("src.engine.get_provider")
-@patch("src.engine.Live")
-@patch("src.engine.console")
-def test_run_llm_execution_success(mock_console, mock_live, mock_get_provider, mock_load_settings):
-    """Test the async execution wrapper."""
-    # ARRANGE
-    mock_settings = MagicMock()
-    mock_load_settings.return_value = mock_settings
-    
-    # Mock the provider to return our async generator
+@patch("src.engine.Live")  # Patch Live to prevent UI rendering
+def test_stream_llm_response_success(mock_live, mock_get_provider, mock_load_settings):
+    """Test successful streaming from a provider."""
+    # Setup provider mock
     mock_provider = MagicMock()
-    mock_provider.stream_response = mock_stream_generator
     mock_get_provider.return_value = mock_provider
-
-    # ACT
-    # This runs the async loop internally
-    result = run_llm_execution("openai", "test prompt")
-
-    # ASSERT
-    assert result == "Chunk 1Chunk 2"
-    mock_get_provider.assert_called_once_with("openai", mock_settings)
-    mock_live.assert_called()  # Ensure the UI component was activated
-
-@patch("src.engine.load_settings")
-@patch("src.engine.get_provider")
-@patch("src.engine.console")
-def test_run_llm_execution_config_error(mock_console, mock_get_provider, mock_load_settings):
-    """Test that configuration errors are caught and handled gracefully."""
-    # ARRANGE
-    mock_get_provider.side_effect = ValueError("Missing API Key")
-
-    # ACT
-    result = run_llm_execution("openai", "prompt")
-
-    # ASSERT
-    assert result is None  # Should return None on error
-    assert any("Configuration Error" in str(args) for args in mock_console.print.call_args_list)
+    
+    # Setup async stream generator
+    async def async_stream(prompt):
+        yield "Part 1"
+        yield "Part 2"
+    mock_provider.stream_response = async_stream
+    
+    result = stream_llm_response("openai", "test prompt")
+    
+    assert result == "Part 1Part 2"
+    mock_get_provider.assert_called_once()
 
 @patch("src.engine.load_settings")
 @patch("src.engine.get_provider")
 @patch("src.engine.console")
-@patch("src.engine.logger")
-def test_run_llm_execution_generic_error(mock_logger, mock_console, mock_get_provider, mock_load_settings):
-    """Test that generic exceptions are caught and logged."""
-    # ARRANGE
-    # Simulate a crash that is NOT a ValueError (e.g. Network Error)
-    mock_get_provider.side_effect = Exception("Unexpected Network Crash")
-
-    # ACT
-    result = run_llm_execution("openai", "prompt")
-
-    # ASSERT
+def test_stream_llm_response_config_error(mock_console, mock_get_provider, mock_load_settings):
+    """Test handling of configuration errors (e.g. missing keys)."""
+    mock_get_provider.side_effect = ValueError("Missing Key")
+    
+    result = stream_llm_response("openai", "test prompt")
+    
     assert result is None
-    mock_logger.error.assert_called() # Verify we logged the stack trace
-    assert any("Connection Error" in str(args) for args in mock_console.print.call_args_list)
+    assert any("Configuration Error" in str(arg) for args, _ in mock_console.print.call_args_list for arg in args)

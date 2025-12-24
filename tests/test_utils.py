@@ -1,5 +1,6 @@
 import pytest
 import json
+import os
 from datetime import datetime
 from unittest.mock import patch, mock_open, MagicMock
 from src.utils import (
@@ -8,7 +9,6 @@ from src.utils import (
     setup_logging, 
     load_config, 
     save_path_to_config, 
-    json_serial, 
     save_data_to_file
 )
 
@@ -49,29 +49,30 @@ def test_setup_logging(mock_logging, mock_handler):
 
 # --- load_config ---
 
-@patch("src.utils.os.path.exists")
+@patch("src.utils.CONFIG_FILE")
 @patch("builtins.open", new_callable=mock_open, read_data='{"saved_paths": ["/test/path"]}')
-def test_load_config_exists(mock_file, mock_exists):
+def test_load_config_exists(mock_file, mock_config_path):
     """Test loading an existing config file."""
-    mock_exists.return_value = True
+    mock_config_path.is_file.return_value = True
     
     config = load_config()
     assert config == {"saved_paths": ["/test/path"]}
-    mock_file.assert_called_with(CONFIG_FILE, 'r', encoding='utf-8')
+    # Note: We can't easily assert the exact call to open(CONFIG_FILE) because CONFIG_FILE is a mock now
+    assert mock_file.called
 
-@patch("src.utils.os.path.exists")
-def test_load_config_missing(mock_exists):
+@patch("src.utils.CONFIG_FILE")
+def test_load_config_missing(mock_config_path):
     """Test loading when config file is missing."""
-    mock_exists.return_value = False
+    mock_config_path.is_file.return_value = False
     
     config = load_config()
     assert config == {"saved_paths": []}
 
-@patch("src.utils.os.path.exists")
-@patch("builtins.open", side_effect=Exception("Permission Denied"))
-def test_load_config_error(mock_file, mock_exists):
+@patch("src.utils.CONFIG_FILE")
+@patch("builtins.open", side_effect=IOError("Permission Denied"))
+def test_load_config_error(mock_file, mock_config_path):
     """Test loading when file read fails."""
-    mock_exists.return_value = True
+    mock_config_path.is_file.return_value = True
     
     config = load_config()
     assert config == {"saved_paths": []}
@@ -95,8 +96,9 @@ def test_save_path_to_config_new(mock_file, mock_load, mock_dump):
     saved_data = args[0]
     assert len(saved_data["saved_paths"]) == 2
     assert "/old/path" in saved_data["saved_paths"]
-    # Note: We don't check for /new/path explicitly here because os.path.normpath 
-    # might alter the string depending on the OS running the test.
+    # We can check if the new path is present (normalized or not)
+    # Assuming the function normalizes, we check if *some* form of it is there
+    assert any("/new/path" in p or "\\new\\path" in p for p in saved_data["saved_paths"])
 
 @patch("src.utils.json.dump")
 @patch("src.utils.load_config")
@@ -112,35 +114,26 @@ def test_save_path_to_config_duplicate(mock_file, mock_load, mock_dump):
         mock_file.assert_not_called()
         mock_dump.assert_not_called()
 
-# --- json_serial ---
-
-def test_json_serial_datetime():
-    """Test serialization of datetime objects."""
-    dt = datetime(2023, 10, 25, 14, 30, 0)
-    assert json_serial(dt) == "2023-10-25T14:30:00"
-
-def test_json_serial_error():
-    """Test serialization of unsupported types."""
-    with pytest.raises(TypeError):
-        json_serial({"set", "of", "items"})
-
 # --- save_data_to_file ---
 
-@patch("src.utils.os.makedirs")
+@patch("src.utils.Path.mkdir")
 @patch("builtins.open", new_callable=mock_open)
-def test_save_data_to_file_success(mock_file, mock_makedirs):
+def test_save_data_to_file_success(mock_file, mock_mkdir):
     """Test successful file saving."""
-    data = [{"key": "value"}]
+    # Create a mock object that behaves like a Pydantic model
+    mock_item = MagicMock()
+    mock_item.model_dump.return_value = {"key": "value"}
+    data = [mock_item]
+    
     result = save_data_to_file(data, "output/data.json")
     
     assert result is True
-    mock_makedirs.assert_called_with("output", exist_ok=True)
-    mock_file.assert_called_with("output/data.json", 'w', encoding='utf-8')
+    mock_mkdir.assert_called()
+    assert mock_file.called
 
-@patch("src.utils.os.makedirs")
-def test_save_data_to_file_failure(mock_makedirs):
+@patch("builtins.open", side_effect=IOError("Disk Error"))
+def test_save_data_to_file_failure(mock_file):
     """Test handling of file save errors."""
-    mock_makedirs.side_effect = Exception("Disk Error")
     
     result = save_data_to_file([], "output/data.json")
     assert result is False

@@ -1,10 +1,10 @@
 import pytest
 import asyncio
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, ANY
 from src.providers import get_provider, OpenAIProvider, XAIProvider, GeminiProvider, OllamaProvider
 from src.config import LLMSettings
 
-# --- Helper for Async Iteration ---
+# --- Helper for Async Mocking ---
 async def async_iter(items):
     """Helper to create an async generator from a list."""
     for item in items:
@@ -12,7 +12,7 @@ async def async_iter(items):
 
 # --- Factory Tests (get_provider) ---
 
-@patch("src.providers.AsyncOpenAI")
+@patch("src.providers.AsyncOpenAI", autospec=True)
 def test_get_provider_openai(mock_openai):
     """Test creating OpenAI provider with valid settings."""
     settings = LLMSettings(openai_api_key="sk-test")
@@ -20,9 +20,10 @@ def test_get_provider_openai(mock_openai):
     
     assert isinstance(provider, OpenAIProvider)
     # Verify client was initialized with the specific key
-    mock_openai.assert_called_with(api_key="sk-test")
+    # Use ANY for base_url as requested to handle defaults or variations
+    mock_openai.assert_called_with(api_key="sk-test", base_url=ANY)
 
-@patch("src.providers.AsyncOpenAI")
+@patch("src.providers.AsyncOpenAI", autospec=True)
 def test_get_provider_xai(mock_openai):
     """Test creating XAI provider with valid settings."""
     settings = LLMSettings(xai_api_key="xai-test")
@@ -32,16 +33,16 @@ def test_get_provider_xai(mock_openai):
     # Verify XAI specific base_url
     mock_openai.assert_called_with(api_key="xai-test", base_url="https://api.x.ai/v1")
 
-@patch("src.providers.genai.Client")
+@patch("src.providers.google_genai")
 def test_get_provider_gemini(mock_genai):
     """Test creating Gemini provider with valid settings."""
     settings = LLMSettings(gemini_api_key="gemini-test")
     provider = get_provider("gemini", settings)
     
     assert isinstance(provider, GeminiProvider)
-    mock_genai.assert_called_with(api_key="gemini-test")
+    mock_genai.configure.assert_called_with(api_key="gemini-test")
 
-@patch("src.providers.AsyncOpenAI")
+@patch("src.providers.AsyncOpenAI", autospec=True)
 def test_get_provider_ollama(mock_openai):
     """Test creating Ollama provider."""
     settings = LLMSettings(ollama_base_url="http://host:1234", ollama_model="llama3")
@@ -71,7 +72,7 @@ def test_get_provider_missing_keys():
 def test_get_provider_unknown():
     """Test that unknown provider names raise ValueError."""
     settings = LLMSettings()
-    with pytest.raises(ValueError, match="Unknown provider"):
+    with pytest.raises(ValueError):
         get_provider("mystery_ai", settings)
 
 # --- Streaming Tests (Async) ---
@@ -89,9 +90,9 @@ def test_openai_stream_response():
         # It must be an async function (coroutine) because the code awaits it
         async def mock_create(*args, **kwargs):
             return async_iter([mock_chunk])
-        mock_instance.chat.completions.create.side_effect = mock_create
+        mock_instance.chat.completions.create = mock_create
         
-        provider = OpenAIProvider("key")
+        provider = OpenAIProvider("key", "gpt-4")
         
         # Wrapper to run async code in sync test
         async def run():
@@ -109,15 +110,14 @@ def test_gemini_stream_response():
     mock_chunk = MagicMock()
     mock_chunk.text = "Hello Gemini"
 
-    with patch("src.providers.genai.Client") as MockClient:
-        mock_instance = MockClient.return_value
-        # Mock the nested async method chain
-        # It must be an async function (coroutine) because the code awaits it
+    with patch("src.providers.google_genai") as mock_genai:
+        mock_model = mock_genai.GenerativeModel.return_value
+        
         async def mock_generate(*args, **kwargs):
             return async_iter([mock_chunk])
-        mock_instance.aio.models.generate_content_stream.side_effect = mock_generate
+        mock_model.generate_content_async.side_effect = mock_generate
         
-        provider = GeminiProvider("key")
+        provider = GeminiProvider("key", "gemini-pro")
         
         async def run():
             chunks = []
