@@ -1,68 +1,143 @@
-# Git-to-JSON Framework: The Adaptive Intent Engine
+# 🤖 Git-to-JSON Framework (v2.5)
 
-> **Bridge the gap between your local git repository and Large Language Models (LLMs).**
+> **The missing bridge between your Local Git Repository and AI Agents.**
 
-This is not just a data extractor. It is a modular framework designed to generate context-aware prompts for AI development workflows. It features an **Adaptive Intent Engine** that uses accurate token counting to intelligently decide whether to copy results to your clipboard (for quick tasks) or save them to files (for deep analysis).
+**Git-to-JSON** has evolved from a simple data extractor into a fully-fledged **AI Execution Engine** for your terminal. 
 
-## 🚀 Features
+With **v2.5**, it allows you to stream prompts directly to Large Language Models—either in the cloud (OpenAI, XAI, Gemini) or running **100% locally and privately** (Ollama). It features an interactive CLI loop, real-time matrix-style text streaming, and a modular provider system.
 
-* **🧠 Adaptive Intent Engine**: Automatically detects payload size using `tiktoken` (OpenAI's tokenizer).
-    * *Small Payload (< 3.5k tokens)*: Copies directly to your **Clipboard**. Paste straight into ChatGPT/Claude.
-    * *Large Payload (> 3.5k tokens)*: Automatically falls back to saving a structured `PROMPT.md` file to prevent clipboard crashes.
-* **🔌 Plugin Architecture**: Add new capabilities just by dropping a JSON file into the `templates/` folder.
-* **💾 Dual Modes**:
-    * **Workflow Mode**: Task-based generation (Commit Messages, Code Reviews, Bug Hunts).
-    * **Raw Mode**: Classic extraction of full git history to JSON datasets for custom analysis.
-* **🛡️ Production Grade**:
-    * **Secure**: Runs 100% locally. Automatically ignores output directories to prevent data leaks.
-    * **Robust**: Includes a full `pytest` suite and CI/CD integration via GitHub Actions.
+![License](https://img.shields.io/badge/license-MIT-blue.svg) ![Python](https://img.shields.io/badge/python-3.10+-yellow.svg) ![Privacy](https://img.shields.io/badge/privacy-100%25_local_mode-green.svg)
+
+---
+
+## ✨ Key Features (v2.5)
+
+* **🚀 Interactive Workflow:** A continuous CLI loop allows you to generate commit messages, analyze bugs, and query AI agents without restarting the session.
+* **🛡️ Private Mode (Ollama):** Run models like `llama3`, `mistral`, or `deepseek` entirely on your hardware. Your code **never** leaves your machine.
+* **☁️ Cloud Integration:** Native support for **OpenAI** (GPT-4o), **XAI** (Grok), and **Google Gemini** (2.0 Flash/Pro).
+* **⚡ Async Streaming:** Real-time text generation directly in your terminal using the `Rich` UI library.
+* **🔌 Template System:** Pre-built workflows that hydrate prompts with your git diffs:
+    * *Generate Semantic Commit Messages*
+    * *Analyze Staged Changes for Bugs*
+    * *Generate Documentation*
+* **💾 Smart Output:** Flexible handling—copy to clipboard, save to file, or execute immediately.
+
+![Git-to-JSON Terminal Interface](https://raw.githubusercontent.com/sunman97-ui/git-to-json/main/assets/screenshot.png)
+
+---
 
 ## 🛠️ Installation
 
-1.  **Clone the repository**:
-    ```bash
-    git clone [https://github.com/sunman97-ui/git-to-json.git](https://github.com/sunman97-ui/git-to-json.git)
-    cd git-to-json
-    ```
+### 1. Prerequisites
+* **Python 3.10+**
+* **Git** installed and available in your terminal.
 
-2.  **Create a virtual environment (recommended)**:
-    ```bash
-    # Create the environment
-    python -m venv venv
+### 2. Setup
 
-    # Activate the environment
-    # Windows:
-    venv\Scripts\activate
-    
-    # macOS/Linux:
-    source venv/bin/activate
-    ```
+```bash
+# 1. Clone the repository
+git clone https://github.com/sunman97-ui/git-to-json.git
+cd git-to-json
 
-3.  **Install dependencies**:
-    ```bash
-    pip install -r requirements.txt
-    ```
+# 2. Create a virtual environment (Recommended)
+python -m venv venv
 
-## ⚡ Usage
+# 3. Activate the environment
+# Windows
+.\venv\Scripts\activate
+# Mac/Linux
+source venv/bin/activate
 
-Run the main entry point:
+# 4. Install dependencies
+pip install -r requirements.txt
+```
+
+---
+
+## ⚙️ Configuration (The .env File)
+
+The tool uses a `.env` file to manage secrets securely.
+
+1. Copy the example file (if available) or create a new one:
+```bash
+# Create a new .env file
+touch .env
+
+```
+
+
+2. Edit `.env` and add keys **only for the providers you intend to use**:
+
+```ini
+# --- OPTION 1: PRIVATE MODE (Local) ---
+# No API Key required. Points to your local Ollama instance.
+# IMPORTANT: Must end with /v1 for compatibility
+OLLAMA_BASE_URL=http://localhost:11434/v1
+OLLAMA_MODEL=llama3.1:8b
+
+# --- OPTION 2: CLOUD PROVIDERS ---
+# You must provide your own API keys for cloud services.
+# Leave blank if not using these providers.
+OPENAI_API_KEY="put-your-key-here"
+GEMINI_API_KEY="put-your-key-here"
+XAI_API_KEY="put-your-key-here"
+
+
+```
+
+---
+
+## 🛡️ Private Mode Setup (Ollama)
+
+To use the **100% Local & Private** mode, you must have the Ollama software installed on your machine.
+
+1. **Install Ollama:** Download from [ollama.com](https://ollama.com).
+2. **Pull a Model:** Open your terminal and run the command for the model you wish to use (must match your `.env` config):
+```bash
+ollama pull llama3.1:8b
+
+```
+
+
+3. **Start the Server:** Ensure Ollama is running in the background (check your system tray) or run:
+```bash
+ollama serve
+
+```
+
+
+
+> **Privacy Guarantee:** When using the Ollama provider, Git-to-JSON connects strictly to `localhost`. Your code, diffs, and prompts are processed entirely on your CPU/GPU. **No data is sent to the internet.**
+
+---
+
+## 🚀 Usage
+
+Run the main application:
+
 ```bash
 python main.py
 
 ```
 
-### The Menu
+### The Interactive Menu
 
-You will be greeted with an **Intent-Based Menu**:
+When you run the app, you will be presented with a dynamic menu that mixes your templates with core tools:
 
-* **📝 Generate Commit Message** (Template): Extracts staged changes, hydrates a professional prompt, and copies it to your clipboard.
-* **💾 Extract Raw Data** (Classic Mode): The utility to dump git history (Last N commits, Date Range, etc.) into a JSON file.
+* **🚀 Execute AI Prompt (Direct Mode):** Chat directly with your chosen AI provider (Ollama/OpenAI) without any git context. Great for general coding questions.
+* **💾 Extract Raw Data (Classic Mode):** The utility to dump git history (Last N commits, Date Range, etc.) into a JSON file for custom analysis.
+* **📝 [Templates]:** Any JSON file found in the `templates/` directory will appear here (e.g., "Generate Commit Message").
+* These workflows automatically extract diffs, hydrate prompts, and offer to **Copy**, **Save**, or **Execute** the result.
+
+
+
+---
 
 ## 🧩 Extending (How to add Templates)
 
 You can create custom workflows by adding a `.json` file to the `templates/` directory.
 
-**Example: `templates/find_bugs.json**`
+Example:**templates/find_bugs.json**`
 
 ```json
 {
@@ -85,6 +160,8 @@ You can create custom workflows by adding a `.json` file to the `templates/` dir
 
 *The framework automatically detects this file and adds it to the CLI menu.*
 
+---
+
 ## 👨‍💻 Development & Testing
 
 This project enforces code quality via `pytest`.
@@ -96,25 +173,37 @@ pytest
 
 ```
 
-Tests are also automatically run on every Push and Pull Request via **GitHub Actions**.
+---
 
 ## 📂 Project Structure
 
 ```text
-├── .github/             # CI/CD Workflows
-├── src/                 # Core Framework Logic
-│   ├── core.py          # Git Extraction Engine
-│   ├── engine.py        # Prompt Hydration & Clipboard Logic
-│   ├── cli.py           # Interactive Menu
-│   └── utils.py         # Token Counting & Config
-├── templates/           # User-defined workflows (JSON)
-├── tests/               # Pytest Suite
-├── Extracted JSON/      # Output directory (Git-ignored)
-└── main.py              # Entry point
+git-to-json/
+├── src/
+│   ├── cli.py             # Main interactive loop & menu logic
+│   ├── engine.py          # Async AI orchestration & Prompt handling
+│   ├── providers.py       # Adapter factory (Ollama/OpenAI/Gemini/XAI)
+│   ├── template_loader.py # Plugin system for loading JSON workflows
+│   ├── config.py          # Pydantic settings & validation
+│   └── core.py            # Git extraction logic
+├── templates/             # JSON files defining prompt workflows
+├── Extracted JSON/        # Output directory (Ignored by Git)
+├── repo_config.json       # Stores your recently used repository paths
+├── .env                   # API Keys (Ignored by Git)
+└── main.py                # Entry point
 
 ```
+
+## 🤝 Contributing
+
+1. Fork the repository.
+2. Create a feature branch (`git checkout -b feat/amazing-feature`).
+3. Commit your changes (**Atomic commits preferred**).
+4. Push to the branch.
+5. Open a Pull Request.
+
+---
 
 ## 📜 License
 
 MIT License. See `LICENSE` for details.
-
