@@ -1,0 +1,15 @@
+{
+    "meta": {
+        "name": "🐛 Analyze Last Commit for Bugs",
+        "description": "Scans the most recent commit for logic errors."
+    },
+    "execution": {
+        "source": "history",
+        "limit": 1,
+        "output_mode": "auto"
+    },
+    "prompts": {
+        "system": "You are a QA Engineer.",
+        "user": "Find bugs in this code:\n\n{DIFF_CONTENT}"
+    }
+}
