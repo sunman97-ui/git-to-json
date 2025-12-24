@@ -1,54 +1,40 @@
-import os
 import json
 import logging
+from pathlib import Path
+from typing import List
+from pydantic import ValidationError
+from src.schemas import PromptTemplate
 
 logger = logging.getLogger(__name__)
 
-# Constants
-TEMPLATE_DIR = "templates"
+# Build a path relative to this file's location -> <src_dir>/../templates
+TEMPLATE_DIR = Path(__file__).resolve().parent.parent / "templates"
 
-def load_templates():
+def load_templates() -> List[PromptTemplate]:
     """
-    Scans the 'templates/' directory and returns a list of valid template objects.
+    Scans the 'templates/' directory, validates them against the PromptTemplate schema,
+    and returns a list of valid template objects.
     """
-    templates = []
+    templates: List[PromptTemplate] = []
     
-    # Ensure dir exists
-    if not os.path.exists(TEMPLATE_DIR):
+    if not TEMPLATE_DIR.is_dir():
         logger.warning(f"Template directory '{TEMPLATE_DIR}' not found. Creating it.")
-        os.makedirs(TEMPLATE_DIR)
-        return []
+        TEMPLATE_DIR.mkdir(parents=True, exist_ok=True)
+        return templates
 
-    for filename in os.listdir(TEMPLATE_DIR):
-        if filename.endswith(".json"):
-            file_path = os.path.join(TEMPLATE_DIR, filename)
-            try:
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                    
-                if validate_schema(data, filename):
-                    # Inject filename for internal reference
-                    data['_filename'] = filename 
-                    templates.append(data)
+    for file_path in TEMPLATE_DIR.glob("*.json"):
+        try:
+            with file_path.open('r', encoding='utf-8') as f:
+                data = json.load(f)
             
-            except Exception as e:
-                logger.error(f"Failed to load template {filename}: {e}")
+            validated_template = PromptTemplate.model_validate(data)
+            templates.append(validated_template)
+
+        except ValidationError as e:
+            logger.error(f"Validation failed for '{file_path.name}': {e}")
+        except json.JSONDecodeError:
+            logger.error(f"Invalid JSON in '{file_path.name}'.")
+        except Exception as e:
+            logger.error(f"Failed to load template '{file_path.name}': {e}", exc_info=True)
 
     return templates
-
-def validate_schema(data, filename):
-    """
-    Ensures the JSON has the 3 required blocks: meta, execution, prompts.
-    """
-    required_keys = ["meta", "execution", "prompts"]
-    for key in required_keys:
-        if key not in data:
-            logger.warning(f"Skipping {filename}: Missing '{key}' block.")
-            return False
-            
-    # Check sub-keys (Basic validation)
-    if "name" not in data["meta"]:
-        logger.warning(f"Skipping {filename}: Meta block missing 'name'.")
-        return False
-        
-    return True
