@@ -14,6 +14,7 @@ CONFIG_DIR = Path(dirs.user_config_dir)
 CONFIG_FILE = CONFIG_DIR / "repo_config.json"
 LOG_FILE = "git_extraction.log"
 
+
 def count_tokens(text: str, model: str = "gpt-4") -> int:
     """
     Returns the number of tokens in a text string using tiktoken.
@@ -23,23 +24,25 @@ def count_tokens(text: str, model: str = "gpt-4") -> int:
         encoding = tiktoken.encoding_for_model(model)
         return len(encoding.encode(text))
     except Exception as e:
-        logging.getLogger(__name__).warning(f"Token count failed for model '{model}': {e}. Using character estimate.")
-        return len(text) // 4  # Rough estimate
+        encoding = tiktoken.get_encoding("cl100k_base")  # Fallback to GPT-4 encoding
+        logging.getLogger(__name__).warning(
+            f"Error encoding tokens, falling back: {e}", exc_info=True
+        )
+        return len(encoding.encode(text, errors="replace"))
+
 
 def setup_logging():
     """Configures application-wide logging with rotation and UTF-8 support."""
     log_handler = RotatingFileHandler(
-        LOG_FILE,
-        maxBytes=5*1024*1024,  # 5 MB
-        backupCount=1,
-        encoding='utf-8'
+        LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=1, encoding="utf-8"  # 5 MB
     )
     logging.basicConfig(
         level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[log_handler]
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        handlers=[log_handler],
     )
     return logging.getLogger("GitToJson")
+
 
 def load_config() -> dict:
     """Loads the repository history configuration from the user's config directory."""
@@ -47,11 +50,14 @@ def load_config() -> dict:
     if not CONFIG_FILE.is_file():
         return {"saved_paths": []}
     try:
-        with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
+        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
     except (json.JSONDecodeError, IOError) as e:
-        logging.getLogger(__name__).error(f"Failed to load config file: {e}", exc_info=True)
+        logging.getLogger(__name__).error(
+            f"Failed to load config file: {e}", exc_info=True
+        )
         return {"saved_paths": []}
+
 
 def save_path_to_config(path: str):
     """Updates the repository history configuration in the user's config directory."""
@@ -62,10 +68,13 @@ def save_path_to_config(path: str):
     if clean_path not in config.get("saved_paths", []):
         config.setdefault("saved_paths", []).append(clean_path)
         try:
-            with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
+            with open(CONFIG_FILE, "w", encoding="utf-8") as f:
                 json.dump(config, f, indent=4)
         except IOError as e:
-            logging.getLogger(__name__).error(f"Failed to save config file: {e}", exc_info=True)
+            logging.getLogger(__name__).error(
+                f"Failed to save config file: {e}", exc_info=True
+            )
+
 
 def save_data_to_file(data: List[BaseModel], output_path: str) -> bool:
     """
@@ -76,11 +85,15 @@ def save_data_to_file(data: List[BaseModel], output_path: str) -> bool:
         output_path_obj.parent.mkdir(parents=True, exist_ok=True)
 
         # Pydantic's dump capabilities are more robust than custom serializers.
-        json_string = json.dumps([item.model_dump(mode='json') for item in data], indent=4)
-        
-        with open(output_path_obj, 'w', encoding='utf-8') as f:
+        json_string = json.dumps(
+            [item.model_dump(mode="json") for item in data], indent=4
+        )
+
+        with open(output_path_obj, "w", encoding="utf-8") as f:
             f.write(json_string)
         return True
     except (TypeError, IOError) as e:
-        logging.getLogger(__name__).error(f"Failed to save data to {output_path}: {e}", exc_info=True)
+        logging.getLogger(__name__).error(
+            f"Failed to save data to {output_path}: {e}", exc_info=True
+        )
         return False

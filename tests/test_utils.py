@@ -27,13 +27,24 @@ def test_count_tokens_success(mock_tiktoken):
 
 @patch("src.utils.tiktoken")
 def test_count_tokens_fallback(mock_tiktoken):
-    """Test fallback logic when tiktoken fails."""
+    """Test fallback logic when tiktoken.encoding_for_model fails."""
+    # Simulate encoding_for_model failing, which is the scenario for the fallback.
     mock_tiktoken.encoding_for_model.side_effect = Exception("Model not found")
     
-    # Fallback logic is len(text) // 4
-    text = "12345678" # length 8
-    count = count_tokens(text)
-    assert count == 2
+    # Mock the behavior of the fallback encoding.
+    mock_fallback_encoding = MagicMock()
+    mock_fallback_encoding.encode.return_value = [1, 2, 3]  # Simulate encoding to 3 tokens.
+    mock_tiktoken.get_encoding.return_value = mock_fallback_encoding
+
+    text_to_encode = "This text will be encoded by the fallback."
+    token_count = count_tokens(text_to_encode)
+    
+    # Verify that the fallback encoding was requested.
+    mock_tiktoken.get_encoding.assert_called_once_with("cl100k_base")
+    # Verify that the text was encoded using the fallback.
+    mock_fallback_encoding.encode.assert_called_once_with(text_to_encode, errors='replace')
+    # Verify that the final count is the length of the mocked encoded output.
+    assert token_count == 3
 
 # --- setup_logging ---
 

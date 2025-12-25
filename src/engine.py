@@ -1,7 +1,6 @@
 import logging
 import asyncio
-import os
-import pyperclip  # Added dependency for clipboard operations
+import pyperclip
 from rich.console import Console
 from rich.live import Live
 from rich.markdown import Markdown
@@ -12,37 +11,46 @@ from src.core import fetch_repo_data
 from src.utils import count_tokens, save_data_to_file
 from src.config import load_settings
 from src.providers import get_provider
-from src.schemas import PromptTemplate, CommitData, TemplateMeta, TemplateExecution, TemplatePrompts
+from src.schemas import (
+    PromptTemplate,
+    CommitData,
+)
 
 logger = logging.getLogger(__name__)
+
 
 class AuditEngine:
     """
     The Central Processing Unit of the application.
     Orchestrates Data Fetching -> Processing -> Output.
     """
+
     def __init__(self, console: Console):
         self.console = console
         self.settings = load_settings()
 
     def fetch_data(self, repo_path: str, filters: dict) -> List[CommitData]:
         """Wrapper to fetch data with UI feedback."""
-        self.console.print(f"   ⚙️  Fetching repository data...", style="dim")
+        self.console.print("   ⚙️  Fetching repository data...", style="dim")
         data = fetch_repo_data(repo_path, filters)
         if not data:
             self.console.print("   ⚠️  No matching data found.", style="yellow")
         return data
 
-    def build_prompt(self, template: PromptTemplate, data: List[CommitData]) -> Optional[str]:
+    def build_prompt(
+        self, template: PromptTemplate, data: List[CommitData]
+    ) -> Optional[str]:
         """Hydrates a template with commit data."""
         return _build_prompt_from_data(self.console, template, data)
 
-    def execute_raw_extraction(self, repo_path: str, filters: dict, output_path: str) -> bool:
+    def execute_raw_extraction(
+        self, repo_path: str, filters: dict, output_path: str
+    ) -> bool:
         """Workflow: Fetch Data -> Save to JSON."""
         data = self.fetch_data(repo_path, filters)
         if not data:
             return False
-            
+
         return save_data_to_file(data, output_path)
 
     def execute_ai_stream(self, provider_name: str, prompt_text: str):
@@ -72,11 +80,15 @@ class AuditEngine:
         """Internal async handler for streaming."""
         try:
             provider = get_provider(provider_name, self.settings)
-            self.console.print(f"\n[bold green]Connecting to {provider_name.upper()}...[/]")
-            
+            self.console.print(
+                f"\n[bold green]Connecting to {provider_name.upper()}...[/]"
+            )
+
             full_response = ""
             async with provider:
-                with Live(Markdown(""), refresh_per_second=12, console=self.console) as live:
+                with Live(
+                    Markdown(""), refresh_per_second=12, console=self.console
+                ) as live:
                     async for chunk in provider.stream_response(user_prompt):
                         full_response += chunk
                         live.update(Markdown(full_response, style="blue"))
@@ -86,10 +98,15 @@ class AuditEngine:
             logger.error(f"Stream error: {e}", exc_info=True)
             return None
 
+
 # --- Helper Functions (Internal) ---
 
-def _build_prompt_from_data(console: Console, template: PromptTemplate, data: List[CommitData]) -> str:
-    if not data: return ""
+
+def _build_prompt_from_data(
+    console: Console, template: PromptTemplate, data: List[CommitData]
+) -> str:
+    if not data:
+        return ""
 
     if len(data) == 1:
         raw_diff = data[0].diff
@@ -102,14 +119,14 @@ def _build_prompt_from_data(console: Console, template: PromptTemplate, data: Li
         raw_diff = "\n\n".join(combined_diffs)
 
     final_user_prompt = template.prompts.user.replace("{DIFF_CONTENT}", raw_diff)
-    
+
     # RE-ADDED HEADERS to match test expectations and improve LLM clarity
     full_payload = (
         f"--- SYSTEM PROMPT ---\n{template.prompts.system}\n\n"
         f"--- USER PROMPT ---\n{final_user_prompt}"
     )
-    
+
     token_count = count_tokens(full_payload)
     console.print(f"   📊  Payload size: ~{token_count} tokens", style="dim")
-    
+
     return full_payload

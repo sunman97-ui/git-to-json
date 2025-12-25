@@ -1,6 +1,7 @@
-from pydantic import BaseModel, Field
-from typing import Literal, List
+from pydantic import BaseModel
+from typing import Literal
 from datetime import datetime
+
 
 class CommitData(BaseModel):
     hash: str
@@ -10,18 +11,22 @@ class CommitData(BaseModel):
     message: str
     diff: str
 
+
 class TemplateMeta(BaseModel):
     name: str
     description: str
+
 
 class TemplateExecution(BaseModel):
     source: Literal["staged", "history"]
     limit: int = 1
     output_mode: Literal["auto", "clipboard", "file", "execute"] = "auto"
 
+
 class TemplatePrompts(BaseModel):
     system: str | None = None
     user: str
+
 
 class PromptTemplate(BaseModel):
     meta: TemplateMeta

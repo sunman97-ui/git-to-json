@@ -10,27 +10,31 @@ from src.core import get_commits_for_display
 from src.config import LLMSettings
 from src.model_config import ModelConfigManager
 
+
 def get_repository_path(saved_paths):
     """Interactively asks user to select or input a repo path."""
     selected_path = None
-    
+
     if saved_paths:
         choices = saved_paths + ["-- Enter a New Path --"]
         choice = questionary.select("Select a repository:", choices=choices).ask()
         if choice != "-- Enter a New Path --":
             selected_path = choice
-    
+
     if not selected_path:
         selected_path = questionary.path(
             "Enter path to local git repository:",
             default=".",
             only_directories=True,
-            validate=lambda p: os.path.exists(p.strip('"\'')) and os.path.isdir(p.strip('"\'')) or "Directory not found."
+            validate=lambda p: os.path.exists(p.strip("\"'"))
+            and os.path.isdir(p.strip("\"'"))
+            or "Directory not found.",
         ).ask()
         if selected_path:
-            selected_path = selected_path.strip('"\'')
-            
+            selected_path = selected_path.strip("\"'")
+
     return selected_path
+
 
 def select_commits_interactively(repo_path: str) -> list[str] | None:
     """
@@ -38,7 +42,9 @@ def select_commits_interactively(repo_path: str) -> list[str] | None:
     Returns a list of selected commit hashes.
     """
     try:
-        commits = get_commits_for_display(repo_path, limit=50) # Fetch more commits for selection
+        commits = get_commits_for_display(
+            repo_path, limit=50
+        )  # Fetch more commits for selection
         if not commits:
             print("No commits found to display.")
             return None
@@ -47,25 +53,29 @@ def select_commits_interactively(repo_path: str) -> list[str] | None:
         choices = []
         for commit in commits:
             # Truncate message and file list for cleaner display
-            msg_short = (commit['message'][:60] + '..') if len(commit['message']) > 60 else commit['message']
-            files_str = ", ".join(commit['files'][:3])
-            if len(commit['files']) > 3:
+            msg_short = (
+                (commit["message"][:60] + "..")
+                if len(commit["message"]) > 60
+                else commit["message"]
+            )
+            files_str = ", ".join(commit["files"][:3])
+            if len(commit["files"]) > 3:
                 files_str += f" (+{len(commit['files']) - 3} more)"
-            
+
             display_text = (
                 f"{commit['short_hash']} | {commit['date']} | {commit['author']}: "
                 f"{msg_short} | Files: [{files_str or 'None'}]"
             )
-            choices.append(questionary.Choice(title=display_text, value=commit['hash']))
+            choices.append(questionary.Choice(title=display_text, value=commit["hash"]))
 
         if not choices:
             print("No processable commits found.")
             return None
 
         selected_hashes = questionary.checkbox(
-            'Select commits (space to toggle, enter to confirm):',
+            "Select commits (space to toggle, enter to confirm):",
             choices=choices,
-            pointer='➡️'
+            pointer="➡️",
         ).ask()
 
         return selected_hashes
@@ -73,6 +83,7 @@ def select_commits_interactively(repo_path: str) -> list[str] | None:
     except Exception as e:
         print(f"\n❌ Error during interactive commit selection: {e}")
         return None
+
 
 def select_llm_provider():
     """
@@ -95,21 +106,28 @@ def select_llm_provider():
             f"☁️  XAI / Grok ({xai_model}) (Cloud - Public, Costs Tokens)",
             f"☁️  Gemini ({gemini_model}) (Cloud - Public, Costs Tokens)",
             questionary.Separator(),
-            "🔙 Back"
-        ]
+            "🔙 Back",
+        ],
     ).ask()
 
     # Map display label to internal ID used by providers.py
-    if choice is None: return None
-    if "Ollama" in choice: return "ollama"
-    if "OpenAI" in choice: return "openai"
-    if "XAI" in choice:    return "xai"
-    if "Gemini" in choice: return "gemini"
-    
+    if choice is None:
+        return None
+    if "Ollama" in choice:
+        return "ollama"
+    if "OpenAI" in choice:
+        return "openai"
+    if "XAI" in choice:
+        return "xai"
+    if "Gemini" in choice:
+        return "gemini"
+
     return None
+
 
 def get_user_prompt():
     return questionary.text("Enter your prompt for the AI:").ask()
+
 
 def get_raw_extraction_mode():
     """
@@ -124,44 +142,55 @@ def get_raw_extraction_mode():
 
     return questionary.select(
         "Raw Data Extraction: What filters?",
-        choices=[OPT_STAGED, OPT_ALL, OPT_LIMIT, OPT_DATE, OPT_AUTHOR]
+        choices=[OPT_STAGED, OPT_ALL, OPT_LIMIT, OPT_DATE, OPT_AUTHOR],
     ).ask()
+
 
 def get_raw_extraction_filters(mode_selection):
     filters = {}
     if mode_selection == "📝 Staged Changes (Pre-Commit Analysis)":
-        filters['mode'] = 'staged'
+        filters["mode"] = "staged"
     elif mode_selection == "🔢 Last N Commits":
-        filters['limit'] = questionary.text("How many commits?", validate=lambda t: t.isdigit()).ask()
+        filters["limit"] = questionary.text(
+            "How many commits?", validate=lambda t: t.isdigit()
+        ).ask()
     elif mode_selection == "📅 Date Range":
-        filters['since'] = questionary.text("Start Date (YYYY-MM-DD):",).ask()
-        filters['until'] = questionary.text("End Date (YYYY-MM-DD) [Optional]:",).ask()
-        if filters['until'] == "": filters['until'] = None
+        filters["since"] = questionary.text(
+            "Start Date (YYYY-MM-DD):",
+        ).ask()
+        filters["until"] = questionary.text(
+            "End Date (YYYY-MM-DD) [Optional]:",
+        ).ask()
+        if filters["until"] == "":
+            filters["until"] = None
     elif mode_selection == "👤 By Author":
-        filters['author'] = questionary.text("Author Name:",).ask()
+        filters["author"] = questionary.text(
+            "Author Name:",
+        ).ask()
     return filters
+
 
 def get_output_filename(default_name="raw_data.json"):
     return questionary.text("Output JSON filename:", default=default_name).ask()
 
+
 def confirm_save(file_path, count):
     return questionary.confirm(f"Save {count} items to:\n   📂 {file_path}").ask()
+
 
 def get_main_menu_choice(templates):
     choices = []
     if templates:
         choices.extend([t.meta.name for t in templates])
-        choices.append(questionary.Separator()) 
-    
+        choices.append(questionary.Separator())
+
     choices.append("🤝 Interactive Commit Selection")
     choices.append("🚀 Execute AI Prompt (Direct Mode)")
     choices.append("💾 Extract Raw Data (Classic Mode)")
     choices.append("❌ Exit")
-    
-    return questionary.select(
-        "What is your goal?",
-        choices=choices
-    ).ask()
+
+    return questionary.select("What is your goal?", choices=choices).ask()
+
 
 def get_prompt_handling_choice():
     return questionary.select(
@@ -169,18 +198,21 @@ def get_prompt_handling_choice():
         choices=[
             questionary.Choice("📋 Copy to Clipboard", value="clipboard"),
             questionary.Choice("💾 Save to File", value="file"),
-            questionary.Separator(), 
+            questionary.Separator(),
             questionary.Choice("🚀 Execute with AI Agent", value="execute"),
             questionary.Separator(),
-            questionary.Choice("❌ Cancel", value="cancel")
-        ]
+            questionary.Choice("❌ Cancel", value="cancel"),
+        ],
     ).ask()
+
 
 def get_prompt_filename():
     return questionary.text("Enter filename:", default="prompt.txt").ask()
 
+
 def confirm_another_action():
     return questionary.confirm("Perform another action?").ask()
+
 
 def get_interactive_output_choice():
     """Asks user how to handle the data from interactive selection."""
@@ -190,6 +222,6 @@ def get_interactive_output_choice():
             questionary.Choice("🚀 Execute with AI", value="ai"),
             questionary.Choice("💾 Save Combined JSON to File", value="extract"),
             questionary.Separator(),
-            questionary.Choice("❌ Cancel", value="cancel")
-        ]
+            questionary.Choice("❌ Cancel", value="cancel"),
+        ],
     ).ask()
