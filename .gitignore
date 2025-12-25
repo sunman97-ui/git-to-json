@@ -46,3 +46,5 @@ ENV/
 .env
 project_context.md
 .flake8
+GEMINI.md
+audit_report.md
