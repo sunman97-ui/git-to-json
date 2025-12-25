@@ -1,0 +1,15 @@
+{
+  "meta": {
+    "name": "Commit Message Rewriter",
+    "description": "Generates a clean, conventional commit message for selected changes.",
+    "version": "1.0"
+  },
+  "execution": {
+    "source": "history", 
+    "limit": 1
+  },
+  "prompts": {
+    "system": "You are a senior developer. Write a clear, concise commit message following Conventional Commits (type: subject) based on the provided diff.",
+    "user": "Analyze this diff and write a commit message:\n\n{DIFF_CONTENT}"
+  }
+}
