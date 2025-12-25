@@ -44,3 +44,4 @@ ENV/
 .idea/
 *.swp
 .env
+project_context.md

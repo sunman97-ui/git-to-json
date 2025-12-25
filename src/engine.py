@@ -13,6 +13,29 @@ from src.schemas import PromptTemplate, CommitData
 logger = logging.getLogger(__name__)
 console = Console()
 
+class WorkflowExecutor:
+    def __init__(self, console: Console, logger: logging.Logger):
+        self.console = console
+        self.logger = logger
+
+    def execute_with_boundary(self, operation_name: str, operation_func, *args, **kwargs):
+        """Execute operation with comprehensive error boundary."""
+        try:
+            self.console.print(f"⚙️  Starting {operation_name}...", style="dim")
+            result = operation_func(*args, **kwargs)
+            self.console.print(f"✅ {operation_name} completed successfully", style="green")
+            return result
+        except ValueError as e:
+            self.console.print(f"❌ Configuration Error in {operation_name}: {e}", style="bold red")
+            self.logger.error(f"{operation_name} configuration error", exc_info=True)
+        except FileNotFoundError as e:
+            self.console.print(f"❌ File Error in {operation_name}: {e}", style="bold red")
+            self.logger.error(f"{operation_name} file error", exc_info=True)
+        except Exception as e:
+            self.console.print(f"❌ Unexpected Error in {operation_name}: {e}", style="bold red")
+            self.logger.error(f"{operation_name} unexpected error", exc_info=True)
+        return None
+
 def _build_prompt_from_data(template: PromptTemplate, data: List[CommitData]) -> str:
     """
     Builds the final prompt string from the template and a list of commit data.
@@ -89,10 +112,11 @@ def stream_llm_response(provider_name: str, user_prompt: str) -> str | None:
         
         async def stream_task():
             full_response = ""
-            with Live(Markdown(""), refresh_per_second=12, console=console) as live:
-                async for chunk in provider.stream_response(user_prompt):
-                    full_response += chunk
-                    live.update(Markdown(full_response, style="blue"))
+            async with provider:
+                with Live(Markdown(""), refresh_per_second=12, console=console) as live:
+                    async for chunk in provider.stream_response(user_prompt):
+                        full_response += chunk
+                        live.update(Markdown(full_response, style="blue"))
             return full_response
 
         return asyncio.run(stream_task())

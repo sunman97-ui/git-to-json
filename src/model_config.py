@@ -1,48 +1,59 @@
-from typing import Dict, TYPE_CHECKING
+from typing import Dict, TYPE_CHECKING, List, Literal, Optional
+from dataclasses import dataclass
 
 if TYPE_CHECKING:
     from .config import LLMSettings
 
-# Top-level key is the 'provider_name'
-MODEL_CONFIG: Dict[str, Dict[str, str]] = {
-    "openai": {
-        "model_name": "gpt-5-mini",
-        "description": "General purpose model with high reasoning capabilities."
-    },
-    "xai": {
-        "model_name": "grok-4-1-fast-reasoning",
-        "description": "Optimized for logic and complex deduction tasks."
-    },
-    "gemini": {
-        "model_name": "gemini-2.5-pro",
-        "description": "Multimodal model with large context window."
-    },
-    "ollama": {
-        "model_name": "llama3.1:8b",  # Default fallback if settings.ollama_model is missing
-        "description": "Local inference provider."
+@dataclass
+class ProviderConfig:
+    model_name: str
+    description: str
+    requires_api_key: bool = True
+    base_url: Optional[str] = None
+
+class ModelConfigManager:
+    _CONFIGS: Dict[str, ProviderConfig] = {
+        "openai": ProviderConfig(
+            model_name="gpt-5-mini",
+            description="General purpose model with high reasoning capabilities."
+        ),
+        "xai": ProviderConfig(
+            model_name="grok-4-1-fast-reasoning",
+            description="Optimized for logic and complex deduction tasks."
+        ),
+        "gemini": ProviderConfig(
+            model_name="gemini-2.5-pro",
+            description="Multimodal model with large context window."
+        ),
+        "ollama": ProviderConfig(
+            model_name="llama3.1:8b",
+            description="Local inference provider.",
+            requires_api_key=False,
+            base_url="http://localhost:11434/v1" # Default for local Ollama
+        )
     }
-}
 
-def get_model_name(provider_name: str, settings: "LLMSettings | None" = None) -> str:
-    """
-    Retrieves the model name for a given provider.
-    
-    Args:
-        provider_name: The key identifying the provider (e.g., 'openai').
-        settings: Optional settings object (expected to have 'ollama_model' attribute).
+    @classmethod
+    def get_config(cls, provider_name: str) -> ProviderConfig:
+        if provider_name not in cls._CONFIGS:
+            raise ValueError(f"Provider '{provider_name}' not supported")
+        return cls._CONFIGS[provider_name]
+
+    @classmethod
+    def get_model_name(cls, provider_name: str, settings: "LLMSettings | None" = None) -> str:
+        config = cls.get_config(provider_name)
         
-    Returns:
-        The model string identifier, or a default if provider is not found.
-    """
-    # 1. Get the config for the specific provider
-    config = MODEL_CONFIG.get(provider_name)
-    
-    if not config:
-        raise ValueError(f"Provider '{provider_name}' is not defined in model_config.py")
+        # Special handling for Ollama to respect runtime settings
+        if provider_name == "ollama" and settings and hasattr(settings, "ollama_model") and settings.ollama_model:
+            return settings.ollama_model
+        
+        return config.model_name
 
-    # 2. Special handling for Ollama to respect runtime settings
-    if provider_name == "ollama" and settings and hasattr(settings, "ollama_model") and settings.ollama_model:
-        return settings.ollama_model
-
-    # 3. Return the static configuration
-    return config["model_name"]
+    @classmethod
+    def validate_provider_settings(cls, provider_name: str, settings: "LLMSettings") -> None:
+        config = cls.get_config(provider_name)
+        
+        if config.requires_api_key:
+            api_key = getattr(settings, f"{provider_name}_api_key", None)
+            if not api_key:
+                raise ValueError(f"Missing {provider_name.upper()}_API_KEY in environment or settings.")

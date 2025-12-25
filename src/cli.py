@@ -4,13 +4,14 @@ from rich.console import Console
 from src.utils import load_config, save_path_to_config, setup_logging, save_data_to_file
 from src.template_loader import load_templates
 from src.core import fetch_repo_data
-from src.engine import generate_prompt_from_template, stream_llm_response, _build_prompt_from_data
+from src.engine import generate_prompt_from_template, stream_llm_response, _build_prompt_from_data, WorkflowExecutor
 from src.schemas import PromptTemplate, TemplateMeta, TemplateExecution, TemplatePrompts
 import src.tui as tui
 
 # Initialize Logger & Console
 logger = setup_logging()
 console = Console()
+executor = WorkflowExecutor(console, logger)
 
 OUTPUT_ROOT_DIR = "Extracted JSON"
 OPT_STAGED = "📝 Staged Changes (Pre-Commit Analysis)"
@@ -28,8 +29,7 @@ def get_repository_path():
         save_path_to_config(path)
     return path
 
-def handle_raw_extraction(repo_path):
-    """Manages the raw data extraction workflow."""
+def _handle_raw_extraction_logic(repo_path):
     mode_selection = tui.get_raw_extraction_mode()
     if not mode_selection:
         return
@@ -45,43 +45,44 @@ def handle_raw_extraction(repo_path):
     
     filters = tui.get_raw_extraction_filters(mode_selection)
 
-    try:
-        console.print("   ⚙️  Extracting data...")
-        data = fetch_repo_data(repo_path, filters)
-        
-        if not data:
-            console.print("\n⚠️  No matching data found.")
-            return
+    console.print("   ⚙️  Extracting data...")
+    data = fetch_repo_data(repo_path, filters)
+    
+    if not data:
+        console.print("\n⚠️  No matching data found.")
+        return
 
-        filename = tui.get_output_filename()
-        if not filename:
-            return
+    filename = tui.get_output_filename()
+    if not filename:
+        return
 
-        target_dir = os.path.join(os.getcwd(), OUTPUT_ROOT_DIR, selected_sub_dir)
-        full_output_path = os.path.join(target_dir, filename)
+    target_dir = os.path.join(os.getcwd(), OUTPUT_ROOT_DIR, selected_sub_dir)
+    full_output_path = os.path.join(target_dir, filename)
 
-        if tui.confirm_save(full_output_path, len(data)):
-            if save_data_to_file(data, full_output_path):
-                console.print(f"\n✅ Success! Saved to {full_output_path}", style="bold green")
-            else:
-                console.print("\n❌ Error saving file. Check logs.", style="bold red")
+    if tui.confirm_save(full_output_path, len(data)):
+        if save_data_to_file(data, full_output_path):
+            console.print(f"\n✅ Success! Saved to {full_output_path}", style="bold green")
         else:
-            console.print("Operation cancelled.")
+            console.print("\n❌ Error saving file. Check logs.", style="bold red")
+    else:
+        console.print("Operation cancelled.")
 
-    except Exception as e:
-        console.print(f"\n❌ Error: {e}", style="bold red")
-        logger.error("Raw extraction failed", exc_info=True)
+def handle_raw_extraction(repo_path):
+    """Manages the raw data extraction workflow."""
+    executor.execute_with_boundary("Raw Data Extraction", _handle_raw_extraction_logic, repo_path)
 
-def handle_direct_execution():
-    """Manages the direct AI prompt execution workflow."""
+def _handle_direct_execution_logic():
     provider = tui.select_llm_provider()
     if provider:
         prompt = tui.get_user_prompt()
         if prompt:
             stream_llm_response(provider, prompt)
 
-def handle_template_workflow(repo_path, templates, selection_name):
-    """Manages the template-based workflow."""
+def handle_direct_execution():
+    """Manages the direct AI prompt execution workflow."""
+    executor.execute_with_boundary("Direct AI Execution", _handle_direct_execution_logic)
+
+def _handle_template_workflow_logic(repo_path, templates, selection_name):
     selected_template = next((t for t in templates if t.meta.name == selection_name), None)
     if not selected_template:
         return
@@ -96,27 +97,25 @@ def handle_template_workflow(repo_path, templates, selection_name):
         return
 
     if output_option == "clipboard":
-        try:
-            pyperclip.copy(prompt)
-            console.print("\n✅  Success! Prompt copied to clipboard.", style="bold green")
-        except Exception as e:
-            console.print(f"\n❌ Clipboard error: {e}", style="bold red")
+        pyperclip.copy(prompt)
+        console.print("\n✅  Success! Prompt copied to clipboard.", style="bold green")
     elif output_option == "file":
         filename = tui.get_prompt_filename()
         if filename:
-            try:
-                with open(filename, "w", encoding="utf-8") as f:
-                    f.write(prompt)
-                console.print(f"\n✅  Saved to {filename}", style="green")
-            except Exception as e:
-                console.print(f"\n❌ Error saving file: {e}", style="bold red")
+            with open(filename, "w", encoding="utf-8") as f:
+                f.write(prompt)
+            console.print(f"\n✅  Saved to {filename}", style="green")
     elif output_option == "execute":
         provider = tui.select_llm_provider()
         if provider:
             console.print("\n🤖 [Agent] Initializing AI Execution...", style="bold purple")
             stream_llm_response(provider, prompt)
 
-def handle_interactive_workflow(repo_path):
+def handle_template_workflow(repo_path, templates, selection_name):
+    """Manages the template-based workflow."""
+    executor.execute_with_boundary("Template Workflow", _handle_template_workflow_logic, repo_path, templates, selection_name)
+
+def _handle_interactive_workflow_logic(repo_path):
     """Manages the interactive commit selection workflow."""
     console.print("\n[bold cyan]-- Interactive Commit Selection --[/bold cyan]")
     selected_hashes = tui.select_commits_interactively(repo_path)
@@ -170,6 +169,10 @@ def handle_interactive_workflow(repo_path):
         if provider:
             console.print("\n🤖 [Agent] Initializing AI Execution...", style="bold purple")
             stream_llm_response(provider, prompt)
+
+def handle_interactive_workflow(repo_path):
+    """Manages the interactive commit selection workflow."""
+    executor.execute_with_boundary("Interactive Workflow", _handle_interactive_workflow_logic, repo_path)
 
 def run_app():
     """Main Application Loop"""

@@ -1,9 +1,9 @@
 from abc import ABC, abstractmethod
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Optional
 from openai import AsyncOpenAI
 import google.generativeai as google_genai
 from src.config import LLMSettings
-from src.model_config import get_model_name
+from src.model_config import ModelConfigManager
 
 class LLMProvider(ABC):
     """Abstract base class for all LLM providers."""
@@ -19,10 +19,23 @@ class OpenAICompatibleProvider(LLMProvider):
     """
     def __init__(self, model: str, api_key: str | None = None, base_url: str | None = None):
         self.model = model
-        self.client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+        self._api_key = api_key
+        self._base_url = base_url
+        self._client: AsyncOpenAI | None = None
+
+    async def __aenter__(self):
+        self._client = AsyncOpenAI(api_key=self._api_key, base_url=self._base_url)
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        if self._client:
+            await self._client.close()
 
     async def stream_response(self, prompt: str) -> AsyncGenerator[str, None]:
-        stream = await self.client.chat.completions.create(
+        if not self._client:
+            raise RuntimeError("Provider not properly initialized. Use async context manager.")
+        
+        stream = await self._client.chat.completions.create(
             model=self.model,
             messages=[{"role": "user", "content": prompt}],
             stream=True,
@@ -55,6 +68,13 @@ class GeminiProvider(LLMProvider):
         # Configure the client at the instance level
         google_genai.configure(api_key=self.api_key)
 
+    async def __aenter__(self):
+        # Gemini's library uses a global config, so no client to setup.
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        # No client to close, so we can pass.
+        pass
 
     async def stream_response(self, prompt: str) -> AsyncGenerator[str, None]:
         model = google_genai.GenerativeModel(self.model)
@@ -67,24 +87,24 @@ def get_provider(choice: str, settings: LLMSettings) -> LLMProvider:
     """
     Factory function to get an instance of the chosen LLM provider.
     """
-    model_name = get_model_name(choice, settings)
+    ModelConfigManager.validate_provider_settings(choice, settings)
+    model_name = ModelConfigManager.get_model_name(choice, settings)
 
     if choice == "openai":
-        if not settings.openai_api_key:
-            raise ValueError("Missing OPENAI_API_KEY in .env file.")
         return OpenAIProvider(settings.openai_api_key, model=model_name)
     
     if choice == "xai":
-        if not settings.xai_api_key:
-            raise ValueError("Missing XAI_API_KEY in .env file.")
         return XAIProvider(settings.xai_api_key, model=model_name)
     
     if choice == "gemini":
-        if not settings.gemini_api_key:
-            raise ValueError("Missing GEMINI_API_KEY in .env file.")
         return GeminiProvider(settings.gemini_api_key, model=model_name)
     
     if choice == "ollama":
-        return OllamaProvider(settings.ollama_base_url, model=model_name)
+        # Ollama's base_url might be dynamically determined or from config
+        config = ModelConfigManager.get_config("ollama")
+        base_url = settings.ollama_base_url or config.base_url
+        if not base_url:
+            raise ValueError("Ollama base URL not configured.")
+        return OllamaProvider(base_url, model=model_name)
     
     raise ValueError(f"Unknown or unsupported provider: '{choice}'")

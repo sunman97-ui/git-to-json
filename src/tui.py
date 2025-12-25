@@ -8,7 +8,7 @@ import os
 import questionary
 from src.core import get_commits_for_display
 from src.config import LLMSettings
-from src.model_config import get_model_name
+from src.model_config import ModelConfigManager
 
 def get_repository_path(saved_paths):
     """Interactively asks user to select or input a repo path."""
@@ -82,10 +82,10 @@ def select_llm_provider():
     settings = LLMSettings()
 
     # Get model names for display using your new function
-    ollama_model = get_model_name("ollama", settings)
-    openai_model = get_model_name("openai", settings)
-    xai_model = get_model_name("xai", settings)
-    gemini_model = get_model_name("gemini", settings)
+    ollama_model = ModelConfigManager.get_model_name("ollama", settings)
+    openai_model = ModelConfigManager.get_model_name("openai", settings)
+    xai_model = ModelConfigManager.get_model_name("xai", settings)
+    gemini_model = ModelConfigManager.get_model_name("gemini", settings)
 
     choice = questionary.select(
         "Select your Intelligence Provider:",

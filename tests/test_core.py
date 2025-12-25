@@ -2,12 +2,14 @@ import pytest
 from unittest.mock import MagicMock, patch, call
 from datetime import datetime
 from src.core import fetch_repo_data, get_commits_for_display
+import git
 
 # --- Mocks ---
 
 @pytest.fixture
 def mock_repo():
-    repo = MagicMock()
+    # Return an autospecced mock that acts like a git.Repo instance
+    repo = MagicMock(spec=git.Repo)
     return repo
 
 @pytest.fixture
@@ -74,10 +76,10 @@ def test_fetch_repo_data_invalid_repo(mock_repo_cls):
     with pytest.raises(ValueError, match="not a valid Git repository"):
         fetch_repo_data("/bad/path", {})
 
-@patch("src.core.git.Repo")
-def test_fetch_staged_no_changes(mock_repo_cls, mock_repo):
+@patch("src.core.git", autospec=True)
+def test_fetch_staged_no_changes(mock_git_module, mock_repo):
     """Test staged mode when there are no changes."""
-    mock_repo_cls.return_value = mock_repo
+    mock_git_module.Repo.return_value = mock_repo
     mock_repo.index.diff.return_value = [] # Empty diff
     
     results = fetch_repo_data("/repo", {"mode": "staged"})
@@ -127,12 +129,12 @@ def test_get_commits_for_display_success(mock_repo_cls, mock_repo, mock_commit_w
     assert "docs/README.md" in commit_info["files"]
 
 @patch("src.core.git.Repo")
-@patch("src.core.get_commit_diff") # Mock this to avoid full diff calculation in test
-def test_fetch_history_data_by_hashes_success(mock_get_commit_diff, mock_repo_cls, mock_repo, mock_commit):
+@patch("src.core.DiffExtractor.extract_diff")
+def test_fetch_history_data_by_hashes_success(mock_extract_diff, mock_repo_cls, mock_repo, mock_commit):
     """Test fetching specific commits by hash."""
     mock_repo_cls.return_value = mock_repo
     mock_repo.commit.side_effect = [mock_commit, mock_commit] # Return same mock commit for simplicity
-    mock_get_commit_diff.return_value = "mocked diff"
+    mock_extract_diff.return_value = "mocked diff"
     
     test_hashes = ["hash1", "hash2"]
     results = fetch_repo_data("/path/to/repo", {"mode": "hashes", "hashes": test_hashes})
