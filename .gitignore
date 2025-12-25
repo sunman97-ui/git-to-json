@@ -45,3 +45,4 @@ ENV/
 *.swp
 .env
 project_context.md
+.flake8
