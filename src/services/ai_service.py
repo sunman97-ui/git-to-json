@@ -30,6 +30,7 @@ async def stream_ai_response(
                 async for chunk in provider.stream_response(user_prompt):
                     full_response += chunk
                     live.update(Markdown(full_response, style="blue"))
+                live.stop()
         return full_response
     except Exception as e:
         console.print(f"\n[bold red]AI Execution Error:[/]\n{e}")
