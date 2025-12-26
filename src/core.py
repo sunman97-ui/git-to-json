@@ -48,9 +48,7 @@ class DiffExtractor:
             except (UnicodeDecodeError, AttributeError, ValueError) as e:
                 path = diff_item.a_path or diff_item.b_path
                 msg = f"Skipping diff for {path} due to processing error: {e}"
-                diffs.append(
-                    f"--- FILE: {path} ---(Could not decode diff: {e})"
-                )
+                diffs.append(f"--- FILE: {path} ---(Could not decode diff: {e})")
                 logger.warning(msg)
             except Exception as e:
                 path = diff_item.a_path or diff_item.b_path
@@ -62,7 +60,8 @@ class DiffExtractor:
 
     @staticmethod
     def extract_diff(
-        diff_source: git.Repo | git.Commit, diff_type: Literal["staged", "commit"]  # noqa: E501
+        diff_source: git.Repo | git.Commit,
+        diff_type: Literal["staged", "commit"],
     ) -> str:
         """
         Extracts diff based on the specified source and type.

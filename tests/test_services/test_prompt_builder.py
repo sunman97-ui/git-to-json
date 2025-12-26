@@ -69,12 +69,17 @@ def test_build_prompt_single_commit(
         mock_console, mock_template_with_diff_placeholder, mock_single_commit_data
     )
 
-    expected_diff_content = mock_single_commit_data[0].diff
-    assert (
-        f"--- SYSTEM PROMPT ---\nSystem instruction.\n\n--- USER PROMPT ---\nAnalyze these changes: {expected_diff_content}"  # noqa: E501
-        in result
+    expected_formatted_diff = (
+        f"--- Diff for {mock_single_commit_data[0].short_hash}: "
+        f"{mock_single_commit_data[0].message.splitlines()[0]} ---\n"
+        f"{mock_single_commit_data[0].diff}"
     )
-    mock_count_tokens.assert_called_once()
+    expected_full_prompt_part = (
+        f"--- SYSTEM PROMPT ---\nSystem instruction.\n\n"
+        f"--- USER PROMPT ---\nAnalyze these changes: {expected_formatted_diff}"
+    )
+    assert expected_full_prompt_part in result
+    mock_count_tokens.assert_called()
     mock_console.print.assert_called_once()
 
 
@@ -95,12 +100,11 @@ def test_build_prompt_multiple_commits(
         f"--- Diff for {mock_multiple_commits_data[1].short_hash}: {mock_multiple_commits_data[1].message.splitlines()[0]} ---\n{mock_multiple_commits_data[1].diff}"  # noqa: E501
     )
 
-    assert expected_combined_diffs in result
-    assert (
+    expected_full_prompt_part = (
         f"--- SYSTEM PROMPT ---\nSystem instruction.\n\n--- USER PROMPT ---\nAnalyze these changes: {expected_combined_diffs}"  # noqa: E501
-        in result
     )
-    mock_count_tokens.assert_called_once()
+    assert expected_full_prompt_part in result
+    mock_count_tokens.assert_called()
     mock_console.print.assert_called_once()
 
 
@@ -115,12 +119,20 @@ def test_build_prompt_empty_data(
     mock_console.print.assert_not_called()
 
 
-@patch("src.services.prompt_builder.count_tokens", return_value=50)
+@patch("src.services.prompt_builder.count_tokens")
 def test_build_prompt_count_tokens_called(
     mock_count_tokens, mock_console, mock_simple_template, mock_single_commit_data
 ):
     """Verify that count_tokens is called with the full payload."""
+    # Mock different return values for different calls if needed for specific logic.
+    # For this test, we just want to ensure it's called.
+    mock_count_tokens.side_effect = [
+        10,  # For the base prompt part
+        20,  # For the commit chunk
+        30,  # For the final full payload
+    ]
     build_prompt(mock_console, mock_simple_template, mock_single_commit_data)
-    mock_count_tokens.assert_called_once()
+    mock_count_tokens.assert_called()
+    assert mock_count_tokens.call_count == 3
     # Detailed assertion for the payload would be too complex here,
     # but we confirm it was called.

@@ -37,7 +37,8 @@ class AuditEngine:
         self, template: PromptTemplate, data: List[CommitData]
     ) -> Optional[str]:
         """Hydrates a template with commit data."""
-        return build_prompt(self.console, template, data)
+        # A max_tokens value could be sourced from config here in the future
+        return build_prompt(self.console, template, data, max_tokens=120000)
 
     def execute_raw_extraction(
         self, repo_path: str, filters: dict, output_path: str
@@ -52,9 +53,7 @@ class AuditEngine:
     def execute_ai_stream(self, provider_name: str, prompt_text: str):
         """Workflow: Connect to Provider -> Stream Response."""
         return asyncio.run(
-            stream_ai_response(
-                self.console, self.settings, provider_name, prompt_text
-            )
+            stream_ai_response(self.console, self.settings, provider_name, prompt_text)
         )
 
     def save_prompt_to_file(self, prompt_text: str, filepath: str) -> bool:
