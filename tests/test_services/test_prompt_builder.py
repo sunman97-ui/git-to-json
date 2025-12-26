@@ -100,9 +100,7 @@ def test_build_prompt_multiple_commits(
         f"--- Diff for {mock_multiple_commits_data[1].short_hash}: {mock_multiple_commits_data[1].message.splitlines()[0]} ---\n{mock_multiple_commits_data[1].diff}"  # noqa: E501
     )
 
-    expected_full_prompt_part = (
-        f"--- SYSTEM PROMPT ---\nSystem instruction.\n\n--- USER PROMPT ---\nAnalyze these changes: {expected_combined_diffs}"  # noqa: E501
-    )
+    expected_full_prompt_part = f"--- SYSTEM PROMPT ---\nSystem instruction.\n\n--- USER PROMPT ---\nAnalyze these changes: {expected_combined_diffs}"  # noqa: E501
     assert expected_full_prompt_part in result
     mock_count_tokens.assert_called()
     mock_console.print.assert_called_once()

@@ -3,6 +3,15 @@ from unittest.mock import MagicMock, patch, call
 from src.core import fetch_repo_data, get_commits_for_display
 import git
 
+from src.core import (
+    _build_fetch_kwargs,
+    _process_commit,
+    GitRepositoryContext,
+    DiffExtractor,
+)
+from src.schemas import CommitData
+from datetime import datetime
+
 # --- Mocks ---
 
 
@@ -193,3 +202,135 @@ def test_fetch_repo_data_mode_hashes(
     mock_fetch_staged.assert_not_called()
     mock_fetch_history.assert_not_called()
     assert results == ["mock_commit_data"]
+
+
+# --- Refactoring Tests ---
+
+
+def test_build_fetch_kwargs():
+    """Test that _build_fetch_kwargs correctly builds kwargs."""
+    filters = {"limit": "10", "author": "Test Author", "since": "2023-01-01"}
+    expected_kwargs = {"max_count": 10, "author": "Test Author", "since": "2023-01-01"}
+    assert _build_fetch_kwargs(filters) == expected_kwargs
+
+
+@patch("src.core.DiffExtractor.extract_diff")
+def test_process_commit(mock_extract_diff, mock_commit):
+    """Test that _process_commit correctly processes a commit object."""
+    mock_extract_diff.return_value = "mock diff text"
+
+    result = _process_commit(mock_commit)
+
+    assert isinstance(result, CommitData)
+    assert result.hash == "1234567890abcdef"
+    assert result.short_hash == "1234567"
+    assert result.author == "Test Author"
+    assert result.date == datetime.fromtimestamp(1700000000)
+    assert result.message == "Test Commit Message"
+    assert result.diff == "mock diff text"
+    mock_extract_diff.assert_called_once_with(mock_commit, "commit")
+
+
+@patch("src.core.git.Repo")
+def test_git_repository_context_exit(mock_repo_cls):
+    """Test that the repository is closed on context exit."""
+    mock_repo_instance = MagicMock()
+    mock_repo_cls.return_value = mock_repo_instance
+
+    with GitRepositoryContext("/fake/path"):
+        pass  # The context manager should handle everything
+
+    mock_repo_instance.close.assert_called_once()
+
+
+# --- DiffExtractor Tests ---
+
+
+@pytest.fixture
+def mock_diff_item():
+    """Fixture for a generic diff item."""
+    item = MagicMock()
+    item.a_path = "a/file.txt"
+    item.b_path = "b/file.txt"
+    item.new_file = False
+    item.deleted_file = False
+    item.diff = b"--- a/file.txt\n+++ b/file.txt\n@@ -1 +1 @@\n-old\n+new"
+    item.a_blob = None
+    item.b_blob = None
+    return item
+
+
+def test_process_diff_index_modified(mock_diff_item):
+    """Test _process_diff_index for a modified file."""
+    result = DiffExtractor._process_diff_index([mock_diff_item])
+    assert "--- FILE: a/file.txt ---" in result
+    assert "-old\n+new" in result
+
+
+def test_process_diff_index_new_file(mock_diff_item):
+    """Test _process_diff_index for a new file."""
+    mock_diff_item.new_file = True
+    mock_diff_item.a_path = None
+    # Mock blob content for streaming
+    mock_blob = MagicMock()
+    mock_blob.data_stream = [b"new file content"]
+    mock_diff_item.b_blob = mock_blob
+
+    result = DiffExtractor._process_diff_index([mock_diff_item])
+    assert "--- NEW FILE: b/file.txt ---" in result
+    assert "new file content" in result
+
+
+def test_process_diff_index_deleted_file(mock_diff_item):
+    """Test _process_diff_index for a deleted file."""
+    mock_diff_item.deleted_file = True
+    mock_diff_item.b_path = None
+    # Mock blob content for streaming
+    mock_blob = MagicMock()
+    mock_blob.data_stream = [b"deleted file content"]
+    mock_diff_item.a_blob = mock_blob
+
+    result = DiffExtractor._process_diff_index([mock_diff_item])
+    assert "--- DELETED FILE: a/file.txt ---" in result
+    assert "deleted file content" in result
+
+
+def test_extract_diff_staged(mock_repo):
+    """Test extract_diff for staged changes."""
+    mock_repo.head.commit = "fake_commit"
+    with patch.object(DiffExtractor, "_process_diff_index") as mock_process:
+        DiffExtractor.extract_diff(mock_repo, "staged")
+        mock_repo.index.diff.assert_called_once_with(
+            "fake_commit", create_patch=True, R=True
+        )
+        mock_process.assert_called_once()
+
+
+def test_extract_diff_commit(mock_commit):
+    """Test extract_diff for a regular commit."""
+    # Mock parent commit
+    parent_commit = MagicMock()
+    mock_commit.parents = [parent_commit]
+
+    with patch.object(DiffExtractor, "_process_diff_index") as mock_process:
+        DiffExtractor.extract_diff(mock_commit, "commit")
+        parent_commit.diff.assert_called_once_with(mock_commit, create_patch=True)
+        mock_process.assert_called_once()
+
+
+def test_extract_diff_initial_commit(mock_commit):
+    """Test extract_diff for an initial commit (no parents)."""
+    mock_commit.parents = []  # No parents
+    with patch.object(DiffExtractor, "_process_diff_index") as mock_process, patch(
+        "src.core.git.NULL_TREE"
+    ) as mock_null_tree:
+        DiffExtractor.extract_diff(mock_commit, "commit")
+        mock_commit.tree.diff.assert_called_once_with(mock_null_tree, create_patch=True)
+        mock_process.assert_called_once()
+
+
+def test_extract_diff_invalid_type(mock_repo):
+    """Test extract_diff with an invalid diff type."""
+    result = DiffExtractor.extract_diff(mock_repo, "invalid_type")
+    assert "Error extracting invalid_type diff" in result
+    assert "Invalid diff_type 'invalid_type'" in result

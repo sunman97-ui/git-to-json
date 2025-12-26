@@ -78,7 +78,10 @@ def test_build_prompt(audit_engine, mock_template, mock_commit_data):
         result = audit_engine.build_prompt(mock_template, [mock_commit_data])
 
     assert "--- SYSTEM PROMPT ---\nSystem Prompt" in result
-    assert "--- USER PROMPT ---\nUser Prompt --- Diff for abc1234: commit message ---\ndiff_content" in result  # noqa: E501
+    assert (
+        "--- USER PROMPT ---\nUser Prompt --- Diff for abc1234: commit message ---\ndiff_content"
+        in result
+    )  # noqa: E501
 
 
 @patch("src.engine.save_data_to_file")

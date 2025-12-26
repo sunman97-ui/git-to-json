@@ -188,8 +188,7 @@ def _fetch_history_data_by_hashes(
     return commits_data
 
 
-def _fetch_history_data(repo: git.Repo, filters: dict) -> List[CommitData]:
-    """Fetches commit history based on the provided filters."""
+def _build_fetch_kwargs(filters: dict) -> dict:
     kwargs = {}
     if filters.get("limit"):
         kwargs["max_count"] = int(filters["limit"])
@@ -199,26 +198,31 @@ def _fetch_history_data(repo: git.Repo, filters: dict) -> List[CommitData]:
         kwargs["until"] = filters["until"]
     if filters.get("author"):
         kwargs["author"] = filters["author"]
+    return kwargs
 
+
+def _process_commit(commit: git.Commit) -> CommitData:
+    return CommitData(
+        hash=commit.hexsha,
+        short_hash=commit.hexsha[:7],
+        author=commit.author.name or "Unknown Author",
+        date=datetime.fromtimestamp(commit.committed_date),
+        message=commit.message.strip(),
+        diff=DiffExtractor.extract_diff(commit, "commit"),
+    )
+
+
+def _fetch_history_data(repo: git.Repo, filters: dict) -> List[CommitData]:
+    kwargs = _build_fetch_kwargs(filters)
     logger.info(f"Fetching History with filters: {kwargs}")
     commits_generator = repo.iter_commits(**kwargs)
 
     commits_data = []
     for commit in commits_generator:
-        if len(commits_data) >= 1000:  # Safety cap to prevent excessive memory use
-            logger.warning(
-                "Reached maximum commit fetch limit of 1000. Stopping further processing."  # noqa: E501
-            )
+        if len(commits_data) >= 1000:
+            logger.warning("Reached maximum commit fetch limit of 1000.")
             break
-        commit_info = CommitData(
-            hash=commit.hexsha,
-            short_hash=commit.hexsha[:7],
-            author=commit.author.name or "Unknown Author",
-            date=datetime.fromtimestamp(commit.committed_date),
-            message=commit.message.strip(),
-            diff=DiffExtractor.extract_diff(commit, "commit"),
-        )
-        commits_data.append(commit_info)
+        commits_data.append(_process_commit(commit))
     return commits_data
 
 
