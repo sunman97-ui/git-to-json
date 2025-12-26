@@ -3,6 +3,7 @@ import logging
 from datetime import datetime
 from typing import List, Literal
 from .schemas import CommitData
+from .constants import MAX_COMMITS_TO_FETCH
 
 # Initialize module-level logger
 logger = logging.getLogger(__name__)
@@ -11,7 +12,7 @@ logger = logging.getLogger(__name__)
 class DiffExtractor:
     @staticmethod
     def _process_diff_index(diff_index) -> str:
-        """Helper to convert a GitPython DiffIndex into a string, streaming large files."""  # noqa: E501
+        """Helper to convert a GitPython DiffIndex into a string, streaming large files."""
         diffs = []
 
         def _stream_blob_content(blob, empty_message):
@@ -40,7 +41,7 @@ class DiffExtractor:
                     )
                 else:
                     prefix = f"--- FILE: {diff_item.a_path} ---\n"
-                    # .diff contains the patch, which is generally small enough to read directly.  # noqa: E501
+                    # .diff contains the patch, which is generally small enough to read directly.
                     diff_text = diff_item.diff.decode("utf-8", "replace")
 
                 diffs.append(f"{prefix}{diff_text}")
@@ -48,9 +49,7 @@ class DiffExtractor:
             except (UnicodeDecodeError, AttributeError, ValueError) as e:
                 path = diff_item.a_path or diff_item.b_path
                 msg = f"Skipping diff for {path} due to processing error: {e}"
-                diffs.append(
-                    f"--- FILE: {path} ---(Could not decode diff: {e})"
-                )
+                diffs.append(f"--- FILE: {path} ---(Could not decode diff: {e})")
                 logger.warning(msg)
             except Exception as e:
                 path = diff_item.a_path or diff_item.b_path
@@ -62,7 +61,7 @@ class DiffExtractor:
 
     @staticmethod
     def extract_diff(
-        diff_source: git.Repo | git.Commit, diff_type: Literal["staged", "commit"]  # noqa: E501
+        diff_source: git.Repo | git.Commit, diff_type: Literal["staged", "commit"]
     ) -> str:
         """
         Extracts diff based on the specified source and type.
@@ -80,7 +79,7 @@ class DiffExtractor:
                     diff_index = parent.diff(diff_source, create_patch=True)
             else:
                 raise ValueError(
-                    f"Invalid diff_type '{diff_type}' for source type {type(diff_source)}"  # noqa: E501
+                    f"Invalid diff_type '{diff_type}' for source type {type(diff_source)}"
                 )
 
             return DiffExtractor._process_diff_index(diff_index)
@@ -183,7 +182,7 @@ def _fetch_history_data_by_hashes(
             commits_data.append(commit_info)
         except Exception as e:
             logger.error(
-                f"Could not fetch data for commit hash {commit_hash}: {e}",  # noqa: E501
+                f"Could not fetch data for commit hash {commit_hash}: {e}",
                 exc_info=True,
             )
     return commits_data
@@ -206,9 +205,9 @@ def _fetch_history_data(repo: git.Repo, filters: dict) -> List[CommitData]:
 
     commits_data = []
     for commit in commits_generator:
-        if len(commits_data) >= 1000:  # Safety cap to prevent excessive memory use
+        if len(commits_data) >= MAX_COMMITS_TO_FETCH:  # Refactored: Uses constant
             logger.warning(
-                "Reached maximum commit fetch limit of 1000. Stopping further processing."  # noqa: E501
+                f"Reached maximum commit fetch limit of {MAX_COMMITS_TO_FETCH}.Stopping further processing."
             )
             break
         commit_info = CommitData(

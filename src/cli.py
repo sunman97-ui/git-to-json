@@ -6,19 +6,16 @@ from src.engine import AuditEngine
 from src.schemas import PromptTemplate, TemplateMeta, TemplateExecution, TemplatePrompts
 import src.tui as tui
 
+# --- IMPORTED CONSTANTS (Refactored) ---
+from src.constants import (
+    OUTPUT_ROOT_DIR,
+    EXTRACTION_MODE_MAPPING,
+)
+
 # --- SETUP ---
 logger = setup_logging()
 console = Console()
 engine = AuditEngine(console)
-
-# --- CONSTANTS ---
-# Preserved for compatibility with tests and consistent naming
-OUTPUT_ROOT_DIR = "Extracted JSON"
-OPT_STAGED = "📝 Staged Changes (Pre-Commit Analysis)"
-OPT_ALL = "📜 All History"
-OPT_LIMIT = "🔢 Last N Commits"
-OPT_DATE = "📅 Date Range"
-OPT_AUTHOR = "👤 By Author"
 
 # --- HELPER FUNCTIONS ---
 
@@ -37,6 +34,7 @@ def get_repository_path():
 
 def resolve_output_path(filename: str, subfolder: str = "General") -> str:
     """Standardizes where files are saved."""
+    # Uses the constant OUTPUT_ROOT_DIR instead of a local string
     target_dir = os.path.join(os.getcwd(), OUTPUT_ROOT_DIR, subfolder)
     os.makedirs(target_dir, exist_ok=True)
     return os.path.join(target_dir, filename)
@@ -60,16 +58,8 @@ def handle_raw_extraction(repo_path):
         return
 
     # 2. Determine Output Path
-    # Map selection string to folder name
-    dir_mapping = {
-        OPT_STAGED: "Staged_Changes",
-        OPT_ALL: "All_History",
-        OPT_LIMIT: "Last_N_Commits",
-        OPT_DATE: "Date_Range",
-        OPT_AUTHOR: "By_Author",
-    }
-    # Fallback logic if string manipulation was used in tests or future extensions
-    folder_name = dir_mapping.get(mode_selection, "Raw_Data")
+    # Refactored: Uses the central mapping from constants.py
+    folder_name = EXTRACTION_MODE_MAPPING.get(mode_selection, "Raw_Data")
 
     full_path = resolve_output_path(filename, folder_name)
 
@@ -174,7 +164,7 @@ def handle_direct_execution():
 
 def run_app():
     console.print(
-        "\n--- 🤖 Git-to-JSON Framework (v3.1 Refactored) ---\n", style="bold blue"
+        "\n--- 🤖 Git-to-JSON Framework (v3.2 Polish) ---\n", style="bold blue"
     )
 
     # Use the restored helper function

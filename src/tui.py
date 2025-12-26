@@ -10,6 +10,9 @@ from src.core import get_commits_for_display
 from src.config import LLMSettings
 from src.model_config import ModelConfigManager
 
+# --- IMPORTED CONSTANTS (Refactored) ---
+from src.constants import OPT_STAGED, OPT_ALL, OPT_LIMIT, OPT_DATE, OPT_AUTHOR
+
 
 def get_repository_path(saved_paths):
     """Interactively asks user to select or input a repo path."""
@@ -18,8 +21,15 @@ def get_repository_path(saved_paths):
     if saved_paths:
         choices = saved_paths + ["-- Enter a New Path --"]
         choice = questionary.select("Select a repository:", choices=choices).ask()
+
         if choice != "-- Enter a New Path --":
-            selected_path = choice
+            # --- FIX START: Validate existence of saved path ---
+            if os.path.exists(choice) and os.path.isdir(choice):
+                selected_path = choice
+            else:
+                print(
+                    f"\n⚠️  The path '{choice}' no longer exists. Please select another."
+                )
 
     if not selected_path:
         selected_path = questionary.path(
@@ -132,14 +142,8 @@ def get_user_prompt():
 def get_raw_extraction_mode():
     """
     Restores the classic 'Extract to JSON' functionality.
+    Now uses constants to ensure matching logic in CLI.
     """
-    # Menu Options
-    OPT_STAGED = "📝 Staged Changes (Pre-Commit Analysis)"
-    OPT_ALL = "📜 All History"
-    OPT_LIMIT = "🔢 Last N Commits"
-    OPT_DATE = "📅 Date Range"
-    OPT_AUTHOR = "👤 By Author"
-
     return questionary.select(
         "Raw Data Extraction: What filters?",
         choices=[OPT_STAGED, OPT_ALL, OPT_LIMIT, OPT_DATE, OPT_AUTHOR],
@@ -148,22 +152,30 @@ def get_raw_extraction_mode():
 
 def get_raw_extraction_filters(mode_selection):
     filters = {}
-    if mode_selection == "📝 Staged Changes (Pre-Commit Analysis)":
+    if mode_selection == OPT_STAGED:
         filters["mode"] = "staged"
-    elif mode_selection == "🔢 Last N Commits":
+    elif mode_selection == OPT_LIMIT:
         filters["limit"] = questionary.text(
             "How many commits?", validate=lambda t: t.isdigit()
         ).ask()
-    elif mode_selection == "📅 Date Range":
+    elif mode_selection == OPT_DATE:
+        # --- Use a named function instead of assigning a lambda ---
+        def validate_date(text):
+            if len(text) == 0:
+                return True
+            # Simple check for YYYY-MM-DD format
+            return True if len(text.split("-")) == 3 else "Format must be YYYY-MM-DD"
+
         filters["since"] = questionary.text(
-            "Start Date (YYYY-MM-DD):",
+            "Start Date (YYYY-MM-DD):", validate=validate_date
         ).ask()
         filters["until"] = questionary.text(
-            "End Date (YYYY-MM-DD) [Optional]:",
+            "End Date (YYYY-MM-DD) [Optional]:", validate=validate_date
         ).ask()
+
         if filters["until"] == "":
             filters["until"] = None
-    elif mode_selection == "👤 By Author":
+    elif mode_selection == OPT_AUTHOR:
         filters["author"] = questionary.text(
             "Author Name:",
         ).ask()

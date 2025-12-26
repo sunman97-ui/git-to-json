@@ -84,13 +84,14 @@ def save_data_to_file(data: List[BaseModel], output_path: str) -> bool:
         output_path_obj = Path(output_path)
         output_path_obj.parent.mkdir(parents=True, exist_ok=True)
 
-        # Pydantic's dump capabilities are more robust than custom serializers.
-        json_string = json.dumps(
-            [item.model_dump(mode="json") for item in data], indent=4
-        )
+        # Convert to dicts first
+        data_as_dicts = [item.model_dump(mode="json") for item in data]
 
+        # OPTIMIZATION: Stream directly to the file object (json.dump)
+        # instead of creating a large intermediate string string (json.dumps).
         with open(output_path_obj, "w", encoding="utf-8") as f:
-            f.write(json_string)
+            json.dump(data_as_dicts, f, indent=4)
+
         return True
     except (TypeError, IOError) as e:
         logging.getLogger(__name__).error(
