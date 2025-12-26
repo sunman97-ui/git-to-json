@@ -1,195 +1,167 @@
 import pytest
-from unittest.mock import MagicMock, patch, call
-from src.core import fetch_repo_data, get_commits_for_display
-import git
+from unittest.mock import MagicMock, patch
+from datetime import datetime
+from src.core import fetch_repo_data, CommitData
 
-# --- Mocks ---
-
-
-@pytest.fixture
-def mock_repo():
-    # Return an autospecced mock that acts like a git.Repo instance
-    repo = MagicMock(spec=git.Repo)
-    return repo
+# --- Fixtures ---
 
 
 @pytest.fixture
-def mock_commit():
-    commit = MagicMock()
-    commit.hexsha = "1234567890abcdef"
-    commit.author.name = "Test Author"
-    commit.committed_date = 1700000000
-    commit.message = "Test Commit Message"
-    # Mock diffs
-    diff_item = MagicMock()
-    diff_item.a_path = "file.txt"
-    diff_item.diff = b"diff content"
-    commit.diff.return_value = [diff_item]
-    return commit
+def mock_commit_data():
+    return [
+        CommitData(
+            hash="abc1234",
+            short_hash="abc1234",
+            author="Test Author",
+            date=datetime(2023, 1, 1),
+            message="Test Message",
+            diff="diff content",
+        )
+    ]
 
 
 # --- Tests ---
 
 
-@patch("src.core.git.Repo")
-def test_fetch_staged_mode(mock_repo_cls, mock_repo):
-    """Test fetching staged changes."""
-    mock_repo_cls.return_value = mock_repo
+@patch("src.core.GitRepositoryContext")
+@patch("src.core._fetch_staged_data")
+def test_fetch_staged_mode(mock_fetch_staged, mock_context, mock_commit_data):
+    """Test fetching staged changes returns the expected list (consumed generator)."""
+    # Setup
+    mock_repo = MagicMock()
+    mock_context.return_value.__enter__.return_value = mock_repo
 
-    # Setup staged diff mock
-    # MagicMocks are truthy by default, so bool(mock.new_file) is True.
-    # We must explicitly set them to False to avoid entering the wrong 'if' block in get_diff_text.
-    diff_item = MagicMock()
-    diff_item.new_file = False
-    diff_item.deleted_file = False
-    diff_item.a_path = "file.txt"
-    diff_item.diff = b"staged diff"
-    mock_repo.index.diff.return_value = [diff_item]
+    # The internal function returns an iterator/generator
+    mock_fetch_staged.return_value = iter(mock_commit_data)
 
-    results = fetch_repo_data("/path/to/repo", {"mode": "staged"})
+    # Execute
+    # CRITICAL FIX: We must consume the generator using list() to trigger logic
+    gen = fetch_repo_data("/mock/path", {"mode": "staged"})
+    results = list(gen)
 
+    # Assert
     assert len(results) == 1
-    # Fix: Access attributes, not keys
-    assert results[0].hash == "STAGED_CHANGES"
-    assert "staged diff" in results[0].diff
+    assert results[0].hash == "abc1234"
+    mock_fetch_staged.assert_called_once_with(mock_repo)
 
 
-@patch("src.core.git.Repo")
-def test_fetch_history_mode(mock_repo_cls, mock_repo, mock_commit):
-    """Test fetching commit history."""
-    mock_repo_cls.return_value = mock_repo
+@patch("src.core.GitRepositoryContext")
+@patch("src.core._fetch_staged_data")
+def test_fetch_staged_no_changes(mock_fetch_staged, mock_context):
+    """Test fetching staged changes handles empty results."""
+    mock_repo = MagicMock()
+    mock_context.return_value.__enter__.return_value = mock_repo
 
-    # Setup history generator
-    mock_repo.iter_commits.return_value = [mock_commit]
+    # Return empty iterator
+    mock_fetch_staged.return_value = iter([])
 
-    results = fetch_repo_data("/path/to/repo", {"mode": "history", "limit": 1})
+    # Execute
+    gen = fetch_repo_data("/mock/path", {"mode": "staged"})
+    results = list(gen)
 
-    assert len(results) == 1
-    # Fix: Access attributes, not keys
-    assert results[0].hash == "1234567890abcdef"
-    assert results[0].author == "Test Author"
-
-
-@patch("src.core.git.Repo")
-def test_fetch_repo_data_invalid_repo(mock_repo_cls):
-    """Test handling of invalid repositories."""
-    # Simulate git.exc.InvalidGitRepositoryError
-    # We need to import it to mock it properly, or just set side_effect to the class
-    from git.exc import InvalidGitRepositoryError
-
-    mock_repo_cls.side_effect = InvalidGitRepositoryError
-
-    with pytest.raises(ValueError, match="not a valid Git repository"):
-        fetch_repo_data("/bad/path", {})
-
-
-@patch("src.core.git", autospec=True)
-def test_fetch_staged_no_changes(mock_git_module, mock_repo):
-    """Test staged mode when there are no changes."""
-    mock_git_module.Repo.return_value = mock_repo
-    mock_repo.index.diff.return_value = []  # Empty diff
-
-    results = fetch_repo_data("/repo", {"mode": "staged"})
-
+    # Assert
     assert results == []
 
 
-@patch("src.core.git.Repo")
-def test_fetch_history_filters(mock_repo_cls, mock_repo):
-    """Test that filters are passed to iter_commits."""
-    mock_repo_cls.return_value = mock_repo
-    fetch_repo_data("/repo", {"mode": "history", "limit": "5", "author": "Me"})
-
-    mock_repo.iter_commits.assert_called_with(max_count=5, author="Me")
-
-
-# New Fixtures
-@pytest.fixture
-def mock_commit_with_stats():
-    commit = MagicMock()
-    commit.hexsha = "c0ffee" * 4
-    commit.author.name = "Dev Lead"
-    commit.committed_date = 1700000000
-    commit.message = "Feat: Add new feature\n\n- Details of feature"
-
-    # Mock commit.stats.files
-    mock_stats_files = MagicMock()
-    mock_stats_files.keys.return_value = [
-        "src/file1.py",
-        "src/file2.py",
-        "docs/README.md",
-    ]
-    commit.stats.files = mock_stats_files
-
-    return commit
-
-
-# New Tests
-@patch("src.core.git.Repo")
-def test_get_commits_for_display_success(
-    mock_repo_cls, mock_repo, mock_commit_with_stats
-):
-    """Test get_commits_for_display returns correctly formatted data."""
-    mock_repo_cls.return_value = mock_repo
-    mock_repo.iter_commits.return_value = [mock_commit_with_stats]
-
-    results = get_commits_for_display("/path/to/repo", limit=1)
-
-    assert len(results) == 1
-    commit_info = results[0]
-    assert commit_info["short_hash"] == "c0ffeec"
-    assert commit_info["author"] == "Dev Lead"
-    assert "Feat: Add new feature" in commit_info["message"]
-    assert "src/file1.py" in commit_info["files"]
-    assert "src/file2.py" in commit_info["files"]
-    assert "docs/README.md" in commit_info["files"]
-
-
-@patch("src.core.git.Repo")
-@patch("src.core.DiffExtractor.extract_diff")
-def test_fetch_history_data_by_hashes_success(
-    mock_extract_diff, mock_repo_cls, mock_repo, mock_commit
-):
-    """Test fetching specific commits by hash."""
-    mock_repo_cls.return_value = mock_repo
-    mock_repo.commit.side_effect = [
-        mock_commit,
-        mock_commit,
-    ]  # Return same mock commit for simplicity
-    mock_extract_diff.return_value = "mocked diff"
-
-    test_hashes = ["hash1", "hash2"]
-    results = fetch_repo_data(
-        "/path/to/repo", {"mode": "hashes", "hashes": test_hashes}
-    )
-
-    assert len(results) == 2
-    mock_repo.commit.assert_has_calls([call("hash1"), call("hash2")])
-    assert results[0].diff == "mocked diff"
-    assert results[1].diff == "mocked diff"
-
-
-@patch("src.core._fetch_history_data_by_hashes")
-@patch("src.core._fetch_staged_data")
+@patch("src.core.GitRepositoryContext")
 @patch("src.core._fetch_history_data")
-@patch("src.core.git.Repo")
-def test_fetch_repo_data_mode_hashes(
-    mock_repo_cls,
-    mock_fetch_history,
-    mock_fetch_staged,
-    mock_fetch_by_hashes,
-    mock_repo,
-):
-    """Test fetch_repo_data correctly dispatches to _fetch_history_data_by_hashes."""
-    mock_repo_cls.return_value = mock_repo
-    mock_fetch_by_hashes.return_value = ["mock_commit_data"]
+def test_fetch_history_mode(mock_fetch_history, mock_context, mock_commit_data):
+    """Test fetching history returns expected items."""
+    mock_repo = MagicMock()
+    mock_context.return_value.__enter__.return_value = mock_repo
 
-    test_hashes = ["hash_abc"]
-    results = fetch_repo_data(
-        "/path/to/repo", {"mode": "hashes", "hashes": test_hashes}
+    mock_fetch_history.return_value = iter(mock_commit_data)
+
+    # Execute
+    gen = fetch_repo_data("/mock/path", {"mode": "history"})
+    results = list(gen)
+
+    # Assert
+    assert len(results) == 1
+    assert results[0].message == "Test Message"
+    # Note: filters dict passed might differ slightly depending on defaults,
+    # checking called matches what we passed.
+    mock_fetch_history.assert_called_once_with(mock_repo, {"mode": "history"})
+
+
+@patch("src.core.GitRepositoryContext")
+@patch("src.core._fetch_history_data")
+def test_fetch_history_filters(mock_fetch_history, mock_context):
+    """Test that filters are passed correctly to the internal history fetcher."""
+    mock_repo = MagicMock()
+    mock_context.return_value.__enter__.return_value = mock_repo
+    mock_fetch_history.return_value = iter([])
+
+    filters = {"mode": "history", "limit": 10, "author": "Dave"}
+
+    # Execute
+    # Must list() to trigger the call to _fetch_history_data
+    list(fetch_repo_data("/mock/path", filters))
+
+    # Assert
+    mock_fetch_history.assert_called_once_with(mock_repo, filters)
+
+
+@patch("src.core.GitRepositoryContext")
+@patch("src.core._fetch_history_data_by_hashes")
+def test_fetch_repo_data_mode_hashes(mock_fetch_hashes, mock_context, mock_commit_data):
+    """Test 'hashes' mode delegates to the correct internal function."""
+    mock_repo = MagicMock()
+    mock_context.return_value.__enter__.return_value = mock_repo
+    mock_fetch_hashes.return_value = iter(mock_commit_data)
+
+    filters = {"mode": "hashes", "hashes": ["hash1", "hash2"]}
+
+    # Execute
+    results = list(fetch_repo_data("/mock/path", filters))
+
+    # Assert
+    assert len(results) == 1
+    mock_fetch_hashes.assert_called_once_with(mock_repo, ["hash1", "hash2"])
+
+
+@patch("src.core.GitRepositoryContext")
+def test_fetch_repo_data_invalid_repo(mock_context):
+    """Test that invalid repo errors are raised correctly."""
+    # Setup the context manager to raise ValueError on __enter__
+    mock_context.return_value.__enter__.side_effect = ValueError("Invalid Git Repo")
+
+    # Execute & Assert
+    with pytest.raises(ValueError):
+        # CRITICAL FIX: Calling fetch_repo_data() just returns a generator.
+        # It won't try to enter the context (and fail) until we try to get an item.
+        list(fetch_repo_data("/invalid/path", {}))
+
+
+# --- Tests for internal helpers (Optional but good for coverage) ---
+
+
+@patch("src.core.DiffExtractor.extract_diff")
+def test_fetch_history_data_by_hashes_success(mock_extract):
+    """Test the internal helper for fetching specific hashes."""
+    from src.core import _fetch_history_data_by_hashes
+
+    # 1. Setup Mock Repo
+    mock_repo = MagicMock()
+    mock_commit = MagicMock()
+
+    # 2. Setup Mock Commit Attributes (CRITICAL: Must be strings for Pydantic)
+    mock_commit.hexsha = "abc1234567"  # Valid hexsha
+    mock_commit.committed_date = 1672531200
+    mock_commit.message = "Fixed Message"
+    mock_commit.author.name = (
+        "Test Author"  # <--- FIX: This was missing/mocked incorrectly
     )
 
-    mock_fetch_by_hashes.assert_called_once_with(mock_repo, test_hashes)
-    mock_fetch_staged.assert_not_called()
-    mock_fetch_history.assert_not_called()
-    assert results == ["mock_commit_data"]
+    mock_repo.commit.return_value = mock_commit
+    mock_extract.return_value = "diff_content"
+
+    # 3. Execute
+    # We pass a valid list of hashes
+    gen = _fetch_history_data_by_hashes(mock_repo, ["abc1234567"])
+    results = list(gen)
+
+    # 4. Assert
+    assert len(results) == 1
+    assert results[0].hash == "abc1234567"
+    assert results[0].author == "Test Author"

@@ -30,9 +30,16 @@ class AuditEngine:
         self.settings = load_settings()
 
     def fetch_data(self, repo_path: str, filters: dict) -> List[CommitData]:
-        """Wrapper to fetch data with UI feedback."""
+        """
+        Wrapper to fetch data with UI feedback.
+        NOTE: This CONSUMES the generator into a list. Use this when you need
+        the data in memory (e.g. for building a prompt).
+        """
         self.console.print("   ⚙️  Fetching repository data...", style="dim")
-        data = fetch_repo_data(repo_path, filters)
+        # We convert the generator to a list here because for AI prompts,
+        # we generally need all data to build the single prompt string.
+        data = list(fetch_repo_data(repo_path, filters))
+
         if not data:
             self.console.print("   ⚠️  No matching data found.", style="yellow")
         return data
@@ -46,12 +53,23 @@ class AuditEngine:
     def execute_raw_extraction(
         self, repo_path: str, filters: dict, output_path: str
     ) -> bool:
-        """Workflow: Fetch Data -> Save to JSON."""
-        data = self.fetch_data(repo_path, filters)
-        if not data:
-            return False
+        """
+        Workflow: Fetch Data -> Save to JSON.
+        OPTIMIZED: This passes the generator directly to the saver.
+        """
+        self.console.print("   ⚙️  Streaming repository data to disk...", style="dim")
 
-        return save_data_to_file(data, output_path)
+        # We do NOT convert to list(). We pass the generator.
+        data_generator = fetch_repo_data(repo_path, filters)
+
+        try:
+            success = save_data_to_file(data_generator, output_path)
+            if not success:
+                self.console.print("   ❌ Failed to save data.", style="red")
+            return success
+        except Exception as e:
+            self.console.print(f"   ❌ Error during extraction: {e}", style="red")
+            return False
 
     def execute_ai_stream(self, provider_name: str, prompt_text: str):
         """Workflow: Connect to Provider -> Stream Response."""
@@ -111,7 +129,6 @@ def _build_prompt_from_data(
     if len(data) == 1:
         raw_diff = data[0].diff
     else:
-        # Optimized concatenation
         combined_diffs = [
             f"--- Diff for {c.short_hash}: {c.message.splitlines()[0]} ---\n{c.diff}"
             for c in data
@@ -120,7 +137,6 @@ def _build_prompt_from_data(
 
     final_user_prompt = template.prompts.user.replace("{DIFF_CONTENT}", raw_diff)
 
-    # RE-ADDED HEADERS to match test expectations and improve LLM clarity
     full_payload = (
         f"--- SYSTEM PROMPT ---\n{template.prompts.system}\n\n"
         f"--- USER PROMPT ---\n{final_user_prompt}"

@@ -1,7 +1,8 @@
 import git
 import logging
 from datetime import datetime
-from typing import List, Literal
+from typing import List, Literal, Iterator
+from charset_normalizer import from_bytes
 from .schemas import CommitData
 from .constants import MAX_COMMITS_TO_FETCH
 
@@ -12,36 +13,52 @@ logger = logging.getLogger(__name__)
 class DiffExtractor:
     @staticmethod
     def _process_diff_index(diff_index) -> str:
-        """Helper to convert a GitPython DiffIndex into a string, streaming large files."""
+        """Helper to convert a GitPython DiffIndex into a string, handling encoding safely."""
         diffs = []
 
-        def _stream_blob_content(blob, empty_message):
-            """Streams blob content line by line to avoid high memory usage."""
+        def _get_blob_content(blob, empty_message):
+            """
+            Reads blob content with automatic encoding detection.
+            Prevents 'Binary' errors on text files saved as UTF-16 (e.g. PowerShell outputs).
+            """
             if not blob:
                 return empty_message
             try:
-                # Iterate over the stream line by line instead of calling read()
-                return "".join(
-                    line.decode("utf-8", "replace") for line in blob.data_stream
-                )
-            except Exception:
-                return "(Could not decode blob content)"
+                # 1. Read the raw bytes of the file
+                # Note: We read the single file into memory here to detect encoding.
+                # This is safe because source code files are rarely GBs in size.
+                raw_data = blob.data_stream.read()
+
+                # 2. Detect Encoding using the library we already have
+                # 'best()' finds the most likely encoding (UTF-8, UTF-16, CP1252, etc.)
+                detected = from_bytes(raw_data).best()
+
+                if detected:
+                    return str(
+                        detected
+                    )  # Convert correctly using the detected encoding
+
+                # 3. Fallback if detection fails (e.g. true binary or very small file)
+                return raw_data.decode("utf-8", "replace")
+
+            except Exception as e:
+                return f"(Could not decode file content: {e})"
 
         for diff_item in diff_index:
             try:
                 if diff_item.new_file:
                     prefix = f"--- NEW FILE: {diff_item.b_path} ---\n"
-                    diff_text = _stream_blob_content(
+                    diff_text = _get_blob_content(
                         diff_item.b_blob, "(File is binary or empty)"
                     )
                 elif diff_item.deleted_file:
                     prefix = f"--- DELETED FILE: {diff_item.a_path} ---\n"
-                    diff_text = _stream_blob_content(
+                    diff_text = _get_blob_content(
                         diff_item.a_blob, "(File was binary or empty)"
                     )
                 else:
                     prefix = f"--- FILE: {diff_item.a_path} ---\n"
-                    # .diff contains the patch, which is generally small enough to read directly.
+                    # For standard diffs (patches), Git usually provides UTF-8.
                     diff_text = diff_item.diff.decode("utf-8", "replace")
 
                 diffs.append(f"{prefix}{diff_text}")
@@ -63,9 +80,6 @@ class DiffExtractor:
     def extract_diff(
         diff_source: git.Repo | git.Commit, diff_type: Literal["staged", "commit"]
     ) -> str:
-        """
-        Extracts diff based on the specified source and type.
-        """
         try:
             if diff_type == "staged":
                 diff_index = diff_source.index.diff(
@@ -116,9 +130,7 @@ def get_commits_for_display(repo_path: str, limit: int = 25) -> List[dict]:
             commits_for_display = []
             for commit in repo.iter_commits(max_count=limit):
                 try:
-                    # Efficiently get affected file paths from commit stats
                     affected_files = list(commit.stats.files.keys())
-
                     commits_for_display.append(
                         {
                             "hash": commit.hexsha,
@@ -143,35 +155,32 @@ def get_commits_for_display(repo_path: str, limit: int = 25) -> List[dict]:
         raise e
 
 
-def _fetch_staged_data(repo: git.Repo) -> List[CommitData]:
-    """Fetches a virtual commit representing staged changes."""
+def _fetch_staged_data(repo: git.Repo) -> Iterator[CommitData]:
+    """Yields a virtual commit representing staged changes."""
     logger.info("Fetching Staged Changes...")
     staged_diff = DiffExtractor.extract_diff(repo, "staged")
 
     if not staged_diff or staged_diff == "No changes detected.":
-        return []
+        return
 
-    return [
-        CommitData(
-            hash="STAGED_CHANGES",
-            short_hash="STAGED",
-            author="Current User",
-            date=datetime.now(),
-            message="PRE-COMMIT: Staged changes ready for analysis.",
-            diff=staged_diff,
-        )
-    ]
+    yield CommitData(
+        hash="STAGED_CHANGES",
+        short_hash="STAGED",
+        author="Current User",
+        date=datetime.now(),
+        message="PRE-COMMIT: Staged changes ready for analysis.",
+        diff=staged_diff,
+    )
 
 
 def _fetch_history_data_by_hashes(
     repo: git.Repo, hashes: List[str]
-) -> List[CommitData]:
-    """Fetches full commit data for a specific list of commit hashes."""
-    commits_data = []
+) -> Iterator[CommitData]:
+    """Yields full commit data for a specific list of commit hashes."""
     for commit_hash in hashes:
         try:
             commit = repo.commit(commit_hash)
-            commit_info = CommitData(
+            yield CommitData(
                 hash=commit.hexsha,
                 short_hash=commit.hexsha[:7],
                 author=commit.author.name or "Unknown Author",
@@ -179,17 +188,15 @@ def _fetch_history_data_by_hashes(
                 message=commit.message.strip(),
                 diff=DiffExtractor.extract_diff(commit, "commit"),
             )
-            commits_data.append(commit_info)
         except Exception as e:
             logger.error(
                 f"Could not fetch data for commit hash {commit_hash}: {e}",
                 exc_info=True,
             )
-    return commits_data
 
 
-def _fetch_history_data(repo: git.Repo, filters: dict) -> List[CommitData]:
-    """Fetches commit history based on the provided filters."""
+def _fetch_history_data(repo: git.Repo, filters: dict) -> Iterator[CommitData]:
+    """Yields commit history based on the provided filters."""
     kwargs = {}
     if filters.get("limit"):
         kwargs["max_count"] = int(filters["limit"])
@@ -203,14 +210,15 @@ def _fetch_history_data(repo: git.Repo, filters: dict) -> List[CommitData]:
     logger.info(f"Fetching History with filters: {kwargs}")
     commits_generator = repo.iter_commits(**kwargs)
 
-    commits_data = []
+    count = 0
     for commit in commits_generator:
-        if len(commits_data) >= MAX_COMMITS_TO_FETCH:  # Refactored: Uses constant
+        if count >= MAX_COMMITS_TO_FETCH:
             logger.warning(
-                f"Reached maximum commit fetch limit of {MAX_COMMITS_TO_FETCH}.Stopping further processing."
+                f"Reached maximum commit fetch limit of {MAX_COMMITS_TO_FETCH}."
             )
             break
-        commit_info = CommitData(
+
+        yield CommitData(
             hash=commit.hexsha,
             short_hash=commit.hexsha[:7],
             author=commit.author.name or "Unknown Author",
@@ -218,30 +226,28 @@ def _fetch_history_data(repo: git.Repo, filters: dict) -> List[CommitData]:
             message=commit.message.strip(),
             diff=DiffExtractor.extract_diff(commit, "commit"),
         )
-        commits_data.append(commit_info)
-    return commits_data
+        count += 1
 
 
-def fetch_repo_data(repo_path: str, filters: dict) -> List[CommitData]:
+def fetch_repo_data(repo_path: str, filters: dict) -> Iterator[CommitData]:
     """
-    Fetches repository data (staged changes or history) based on filters.
+    Fetches repository data as a GENERATOR.
     Input: Path and Filters
-    Output: List of CommitData objects.
+    Output: Iterator of CommitData objects.
     """
     try:
         with GitRepositoryContext(repo_path) as repo:
             mode = filters.get("mode")
             if mode == "staged":
-                return _fetch_staged_data(repo)
+                yield from _fetch_staged_data(repo)
             elif mode == "hashes":
                 commit_hashes = filters.get("hashes", [])
-                if not commit_hashes:
-                    return []
-                return _fetch_history_data_by_hashes(repo, commit_hashes)
-            else:  # Default to 'history' mode
-                return _fetch_history_data(repo, filters)
+                if commit_hashes:
+                    yield from _fetch_history_data_by_hashes(repo, commit_hashes)
+            else:
+                yield from _fetch_history_data(repo, filters)
 
-    except ValueError as e:  # Catch ValueError from GitRepositoryContext
+    except ValueError as e:
         logger.critical(f"Error fetching data from '{repo_path}': {e}", exc_info=True)
         raise e
     except Exception as e:

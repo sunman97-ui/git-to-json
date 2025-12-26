@@ -3,7 +3,7 @@ import os
 import logging
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from typing import List
+from typing import Iterable, Union, List
 import tiktoken
 from appdirs import AppDirs
 from pydantic import BaseModel
@@ -76,21 +76,32 @@ def save_path_to_config(path: str):
             )
 
 
-def save_data_to_file(data: List[BaseModel], output_path: str) -> bool:
+def save_data_to_file(
+    data: Union[List[BaseModel], Iterable[BaseModel]], output_path: str
+) -> bool:
     """
-    Writes a list of Pydantic models to a JSON file.
+    Writes a list OR generator of Pydantic models to a JSON file.
+    Uses manual streaming to ensure low memory usage for large datasets.
     """
     try:
         output_path_obj = Path(output_path)
         output_path_obj.parent.mkdir(parents=True, exist_ok=True)
 
-        # Convert to dicts first
-        data_as_dicts = [item.model_dump(mode="json") for item in data]
-
-        # OPTIMIZATION: Stream directly to the file object (json.dump)
-        # instead of creating a large intermediate string string (json.dumps).
         with open(output_path_obj, "w", encoding="utf-8") as f:
-            json.dump(data_as_dicts, f, indent=4)
+            f.write("[\n")  # Start JSON array
+
+            first = True
+            for item in data:
+                if not first:
+                    f.write(",\n")
+                else:
+                    first = False
+
+                # Dump individual item to string and write it
+                # model_dump_json() is faster than dump() -> json.dumps()
+                f.write("    " + item.model_dump_json())
+
+            f.write("\n]")  # End JSON array
 
         return True
     except (TypeError, IOError) as e:
